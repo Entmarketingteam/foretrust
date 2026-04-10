@@ -215,6 +215,56 @@ CREATE POLICY "Users can view org enrichment" ON ft_deal_enrichment
 CREATE POLICY "Users can view org memos" ON ft_deal_memos
   FOR ALL USING (deal_id IN (SELECT id FROM ft_deals WHERE organization_id = get_user_org_id()));
 
+-- ========================================================================
+-- Lead Acquisition (Scraper Service)
+-- ========================================================================
+
+-- Raw leads from scrapers (pre-qualified)
+CREATE TABLE IF NOT EXISTS ft_leads (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  organization_id UUID REFERENCES ft_organizations(id) ON DELETE CASCADE,
+  source_key VARCHAR(100) NOT NULL,
+  vertical VARCHAR(20) NOT NULL CHECK (vertical IN ('commercial','residential','multifamily')),
+  jurisdiction VARCHAR(100),
+  lead_type VARCHAR(50) NOT NULL,
+  owner_name VARCHAR(255),
+  mailing_address TEXT,
+  property_address TEXT,
+  city VARCHAR(100),
+  state VARCHAR(50),
+  postal_code VARCHAR(20),
+  parcel_number VARCHAR(100),
+  building_sqft INTEGER,
+  unit_count INTEGER,
+  year_built INTEGER,
+  case_id VARCHAR(100),
+  case_filed_date DATE,
+  estimated_value DECIMAL(15, 2),
+  raw_payload JSONB DEFAULT '{}',
+  dedupe_hash VARCHAR(64) NOT NULL,
+  hot_score INTEGER,
+  promoted_deal_id UUID REFERENCES ft_deals(id),
+  scraped_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  UNIQUE(source_key, dedupe_hash)
+);
+
+CREATE INDEX IF NOT EXISTS idx_ft_leads_source ON ft_leads(source_key, scraped_at DESC);
+CREATE INDEX IF NOT EXISTS idx_ft_leads_hot ON ft_leads(hot_score DESC) WHERE promoted_deal_id IS NULL;
+CREATE INDEX IF NOT EXISTS idx_ft_leads_vertical ON ft_leads(vertical, jurisdiction, lead_type);
+
+-- Audit log for each scraper run
+CREATE TABLE IF NOT EXISTS ft_lead_source_runs (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  source_key VARCHAR(100) NOT NULL,
+  status VARCHAR(20) NOT NULL,
+  started_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  finished_at TIMESTAMP WITH TIME ZONE,
+  records_found INTEGER DEFAULT 0,
+  records_new INTEGER DEFAULT 0,
+  error_message TEXT,
+  proxy_session_id VARCHAR(100)
+);
+
 -- Insert default organization and admin user for MVP testing
 INSERT INTO ft_organizations (id, name) VALUES
   ('00000000-0000-0000-0000-000000000001', 'Demo Fund')

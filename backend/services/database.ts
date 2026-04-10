@@ -927,3 +927,129 @@ export async function deleteDeal(dealId: string): Promise<boolean> {
   if (error) throw error;
   return true;
 }
+
+// ========================================================================
+// Lead Acquisition (Scraper Service)
+// ========================================================================
+
+export interface LeadRecord {
+  id: string;
+  source_key: string;
+  vertical: string;
+  jurisdiction?: string;
+  lead_type: string;
+  owner_name?: string;
+  mailing_address?: string;
+  property_address?: string;
+  city?: string;
+  state?: string;
+  postal_code?: string;
+  parcel_number?: string;
+  building_sqft?: number;
+  unit_count?: number;
+  year_built?: number;
+  case_id?: string;
+  case_filed_date?: string;
+  estimated_value?: number;
+  raw_payload?: object;
+  dedupe_hash: string;
+  hot_score?: number;
+  promoted_deal_id?: string;
+  scraped_at: string;
+}
+
+// Mock leads store
+const mockLeads: LeadRecord[] = [];
+const mockLeadRuns: object[] = [];
+
+export async function listLeads(filters: {
+  vertical?: string;
+  source_key?: string;
+  jurisdiction?: string;
+  lead_type?: string;
+  hot_score_min?: number;
+  limit?: number;
+  offset?: number;
+}): Promise<LeadRecord[]> {
+  const client = await getClient();
+
+  if (!client) {
+    let leads = [...mockLeads];
+    if (filters.vertical) leads = leads.filter(l => l.vertical === filters.vertical);
+    if (filters.source_key) leads = leads.filter(l => l.source_key === filters.source_key);
+    if (filters.jurisdiction) leads = leads.filter(l => l.jurisdiction === filters.jurisdiction);
+    if (filters.lead_type) leads = leads.filter(l => l.lead_type === filters.lead_type);
+    if (filters.hot_score_min) leads = leads.filter(l => (l.hot_score || 0) >= filters.hot_score_min!);
+    leads.sort((a, b) => (b.hot_score || 0) - (a.hot_score || 0));
+    const start = filters.offset || 0;
+    return leads.slice(start, start + (filters.limit || 50));
+  }
+
+  let query = client
+    .from('ft_leads')
+    .select('*')
+    .order('hot_score', { ascending: false, nullsFirst: false });
+
+  if (filters.vertical) query = query.eq('vertical', filters.vertical);
+  if (filters.source_key) query = query.eq('source_key', filters.source_key);
+  if (filters.jurisdiction) query = query.eq('jurisdiction', filters.jurisdiction);
+  if (filters.lead_type) query = query.eq('lead_type', filters.lead_type);
+  if (filters.hot_score_min) query = query.gte('hot_score', filters.hot_score_min);
+  if (filters.limit) query = query.limit(filters.limit);
+  if (filters.offset) query = query.range(filters.offset, filters.offset + (filters.limit || 50) - 1);
+
+  const { data, error } = await query;
+  if (error) throw error;
+  return data || [];
+}
+
+export async function getLead(id: string): Promise<LeadRecord | null> {
+  const client = await getClient();
+
+  if (!client) {
+    return mockLeads.find(l => l.id === id) || null;
+  }
+
+  const { data, error } = await client
+    .from('ft_leads')
+    .select('*')
+    .eq('id', id)
+    .single();
+
+  if (error && error.code !== 'PGRST116') throw error;
+  return data;
+}
+
+export async function promoteLead(leadId: string, dealId: string): Promise<void> {
+  const client = await getClient();
+
+  if (!client) {
+    const lead = mockLeads.find(l => l.id === leadId);
+    if (lead) lead.promoted_deal_id = dealId;
+    return;
+  }
+
+  const { error } = await client
+    .from('ft_leads')
+    .update({ promoted_deal_id: dealId })
+    .eq('id', leadId);
+
+  if (error) throw error;
+}
+
+export async function listLeadRuns(limit: number = 20): Promise<object[]> {
+  const client = await getClient();
+
+  if (!client) {
+    return mockLeadRuns.slice(0, limit);
+  }
+
+  const { data, error } = await client
+    .from('ft_lead_source_runs')
+    .select('*')
+    .order('started_at', { ascending: false })
+    .limit(limit);
+
+  if (error) throw error;
+  return data || [];
+}

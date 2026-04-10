@@ -1,0 +1,60 @@
+"""Address and name canonicalization + dedup hash generation."""
+
+from __future__ import annotations
+
+import re
+
+from app.models import Lead
+
+
+def normalize_name(name: str | None) -> str | None:
+    """Normalize a person/entity name for matching."""
+    if not name:
+        return None
+    # Uppercase, strip extra whitespace
+    name = re.sub(r"\s+", " ", name.strip().upper())
+    # Remove common suffixes that vary across sources
+    for suffix in [", JR", ", SR", ", II", ", III", ", IV", " JR", " SR"]:
+        if name.endswith(suffix):
+            name = name[: -len(suffix)]
+    return name
+
+
+def normalize_address(address: str | None) -> str | None:
+    """Normalize a street address for matching."""
+    if not address:
+        return None
+    address = re.sub(r"\s+", " ", address.strip().upper())
+    # Standard abbreviations
+    replacements = {
+        " STREET": " ST",
+        " AVENUE": " AVE",
+        " BOULEVARD": " BLVD",
+        " DRIVE": " DR",
+        " LANE": " LN",
+        " ROAD": " RD",
+        " COURT": " CT",
+        " CIRCLE": " CIR",
+        " PLACE": " PL",
+        " NORTH ": " N ",
+        " SOUTH ": " S ",
+        " EAST ": " E ",
+        " WEST ": " W ",
+    }
+    for full, abbr in replacements.items():
+        address = address.replace(full, abbr)
+    return address
+
+
+def normalize_lead(lead: Lead) -> Lead:
+    """Apply normalization to a lead's fields in place and return it."""
+    lead.owner_name = normalize_name(lead.owner_name)
+    lead.property_address = normalize_address(lead.property_address)
+    lead.mailing_address = normalize_address(lead.mailing_address)
+    if lead.city:
+        lead.city = lead.city.strip().upper()
+    if lead.state:
+        lead.state = lead.state.strip().upper()
+    if lead.postal_code:
+        lead.postal_code = lead.postal_code.strip()[:5]
+    return lead
