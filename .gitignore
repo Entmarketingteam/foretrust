@@ -1,0 +1,20 @@
+node_modules/
+dist/
+.env*
+*.env
+
+# Scraper service
+scraper-service/exports/*
+!scraper-service/exports/.gitkeep
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
+
+# Secrets - never commit these
+google-service-account.json
+.doppler/
+
+# OS
+.DS_Store
+Thumbs.db

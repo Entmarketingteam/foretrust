@@ -1,0 +1,10 @@
+[project]
+name = "foretrust-scraper"
+version = "1.0.0"
+description = "Automated real-estate lead acquisition service for Foretrust"
+requires-python = ">=3.11"
+readme = "README.md"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
