@@ -21,12 +21,27 @@ def _get_client():
     global _client
     if _client is not None:
         return _client
+    if not settings.supabase_url:
+        logger.error(
+            "Supabase client init failed: SUPABASE_URL is not set. "
+            "Add it to Doppler under the scraper-service config."
+        )
+        return None
+    if not settings.supabase_service_role_key:
+        logger.error(
+            "Supabase client init failed: SUPABASE_SERVICE_ROLE_KEY is not set. "
+            "Add it to Doppler under the scraper-service config."
+        )
+        return None
     try:
         from supabase import create_client
         _client = create_client(settings.supabase_url, settings.supabase_service_role_key)
         return _client
     except Exception as exc:
-        logger.error("Failed to create Supabase client: %s", exc)
+        logger.error(
+            "Supabase client init failed: %s — check SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in Doppler.",
+            exc,
+        )
         return None
 
 
