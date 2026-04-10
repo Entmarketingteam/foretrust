@@ -33,31 +33,35 @@ def _get_client():
 async def insert_leads(leads: list[Lead]) -> int:
     """Insert leads into ft_leads, skipping duplicates by dedupe_hash.
 
-    Returns the number of newly inserted leads.
+    Uses batch upsert to avoid N+1 round-trips.
+    Returns the number of leads in the batch (actual new vs. conflict
+    is handled server-side via ON CONFLICT).
     """
     client = _get_client()
     if not client:
         logger.warning("Supabase unavailable; leads not persisted")
         return 0
 
+    rows = [_lead_to_row(lead) for lead in leads]
+    if not rows:
+        return 0
+
     inserted = 0
-    for lead in leads:
-        row = _lead_to_row(lead)
+    # Batch in chunks of 500 to stay within payload limits
+    chunk_size = 500
+    for i in range(0, len(rows), chunk_size):
+        chunk = rows[i : i + chunk_size]
         try:
-            result = client.table("ft_leads").upsert(
-                row,
+            client.table("ft_leads").upsert(
+                chunk,
                 on_conflict="source_key,dedupe_hash",
                 returning="minimal",
             ).execute()
-            inserted += 1
+            inserted += len(chunk)
         except Exception as exc:
-            # Duplicate or other error — log and continue
-            if "duplicate" in str(exc).lower() or "conflict" in str(exc).lower():
-                logger.debug("Duplicate lead skipped: %s", lead.dedupe_hash[:12])
-            else:
-                logger.warning("Insert failed for lead %s: %s", lead.dedupe_hash[:12], exc)
+            logger.warning("Batch upsert failed (chunk %d): %s", i // chunk_size, exc)
 
-    logger.info("Supabase: inserted %d / %d leads", inserted, len(leads))
+    logger.info("Supabase: upserted %d leads", inserted)
     return inserted
 
 
@@ -102,6 +106,25 @@ async def get_pending_ecclix_leads(threshold: int) -> list[dict[str, Any]]:
         return result.data or []
     except Exception as exc:
         logger.warning("Failed to fetch pending eCCLIX leads: %s", exc)
+        return []
+
+
+async def list_source_runs(limit: int = 20) -> list[dict[str, Any]]:
+    """List recent scraper run audit entries."""
+    client = _get_client()
+    if not client:
+        return []
+    try:
+        result = (
+            client.table("ft_lead_source_runs")
+            .select("id, source_key, status, started_at, finished_at, records_found, records_new, error_message")
+            .order("started_at", desc=True)
+            .limit(limit)
+            .execute()
+        )
+        return result.data or []
+    except Exception as exc:
+        logger.warning("Failed to list source runs: %s", exc)
         return []
 
 

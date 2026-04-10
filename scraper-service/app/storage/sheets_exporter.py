@@ -16,9 +16,17 @@ from app.models import Lead
 
 logger = logging.getLogger(__name__)
 
+_cached_spreadsheet = None
+
 
 def _get_client():
-    """Authenticate with Google Sheets using service account JSON from Doppler."""
+    """Authenticate with Google Sheets using service account JSON from Doppler.
+    Caches the spreadsheet handle at module level to avoid re-auth on every export.
+    """
+    global _cached_spreadsheet
+    if _cached_spreadsheet is not None:
+        return None, _cached_spreadsheet
+
     sa_json = settings.google_service_account_json
     spreadsheet_id = settings.google_sheets_spreadsheet_id
 
@@ -38,6 +46,7 @@ def _get_client():
         creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
         gc = gspread.authorize(creds)
         spreadsheet = gc.open_by_key(spreadsheet_id)
+        _cached_spreadsheet = spreadsheet
         return gc, spreadsheet
     except ImportError:
         logger.warning("gspread not installed; Sheets export disabled")

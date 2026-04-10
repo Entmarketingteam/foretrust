@@ -1,10 +1,14 @@
-"""Address and name canonicalization + dedup hash generation."""
+"""Address/name canonicalization, dedup hash, and shared parse utilities."""
 
 from __future__ import annotations
 
 import re
+from datetime import date, datetime
 
 from app.models import Lead
+
+# Common date formats across county sources
+_DATE_FORMATS = ("%m/%d/%Y", "%Y-%m-%d", "%m-%d-%Y", "%Y%m%d")
 
 
 def normalize_name(name: str | None) -> str | None:
@@ -44,6 +48,45 @@ def normalize_address(address: str | None) -> str | None:
     for full, abbr in replacements.items():
         address = address.replace(full, abbr)
     return address
+
+
+def parse_date(s: str | None) -> date | None:
+    """Parse a date string trying multiple common formats."""
+    if not s or not s.strip():
+        return None
+    s = s.strip()
+    for fmt in _DATE_FORMATS:
+        try:
+            return datetime.strptime(s, fmt).date()
+        except ValueError:
+            continue
+    return None
+
+
+def parse_currency(s: str | None) -> float | None:
+    """Parse a dollar amount string like '$1,234,567.89' into a float."""
+    if not s:
+        return None
+    cleaned = str(s).replace(",", "").replace("$", "").strip()
+    if not cleaned:
+        return None
+    try:
+        return float(cleaned)
+    except ValueError:
+        return None
+
+
+def parse_int_commas(s: str | None) -> int | None:
+    """Parse a comma-formatted integer like '14,500' into an int."""
+    if not s:
+        return None
+    cleaned = str(s).replace(",", "").strip()
+    if not cleaned:
+        return None
+    try:
+        return int(cleaned)
+    except ValueError:
+        return None
 
 
 def normalize_lead(lead: Lead) -> Lead:

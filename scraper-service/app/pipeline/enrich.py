@@ -6,6 +6,7 @@ import logging
 from typing import Sequence
 
 from app.models import Lead
+from app.pipeline.normalize import normalize_name
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +29,7 @@ def cross_reference_leads(
     pva_index: dict[str, list[Lead]] = {}
     for pva in pva_leads:
         if pva.owner_name:
-            key = pva.owner_name.strip().upper()
+            key = normalize_name(pva.owner_name) or ""
             pva_index.setdefault(key, []).append(pva)
 
     enriched: list[Lead] = []
@@ -36,7 +37,7 @@ def cross_reference_leads(
 
     for court in court_leads:
         if court.owner_name:
-            key = court.owner_name.strip().upper()
+            key = normalize_name(court.owner_name) or ""
             matches = pva_index.get(key, [])
 
             if matches:

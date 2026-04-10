@@ -31,29 +31,45 @@ async def run_connector_job(source_key: str, params: dict | None = None) -> None
     connector = get_connector(source_key)
     proxy_session = proxy_manager.create_session()
     params = params or {}
+    leads: list = []
+    run = None
 
     logger.info("[scheduler] Starting %s", source_key)
 
-    async with create_browser(proxy_session=proxy_session, headless=True) as browser:
-        leads, run = await connector.run(browser, params, proxy_session)
+    try:
+        async with create_browser(proxy_session=proxy_session, headless=True) as browser:
+            leads, run = await connector.run(browser, params, proxy_session)
 
-    # Score leads
-    if leads:
-        leads = score_leads(leads)
+        # Score leads
+        if leads:
+            leads = score_leads(leads)
 
-    # Store in all three destinations
-    if leads:
-        await insert_leads(leads)
-        export_leads_csv(leads, source_key)
-        export_leads_sheets(leads, source_key)
+        # Store in all three destinations concurrently
+        if leads:
+            await asyncio.gather(
+                insert_leads(leads),
+                asyncio.to_thread(export_leads_csv, leads, source_key),
+                asyncio.to_thread(export_leads_sheets, leads, source_key),
+            )
 
-    # Log the run
-    await insert_source_run(run)
-
-    logger.info(
-        "[scheduler] %s complete: found=%d, new=%d, status=%s",
-        source_key, run.records_found, run.records_new, run.status.value,
-    )
+        logger.info(
+            "[scheduler] %s complete: found=%d, new=%d, status=%s",
+            source_key,
+            run.records_found if run else 0,
+            run.records_new if run else 0,
+            run.status.value if run else "unknown",
+        )
+    except Exception as exc:
+        logger.error("[scheduler] %s failed: %s", source_key, exc)
+        if run:
+            from app.models import SourceRunStatus
+            run.status = SourceRunStatus.ERROR
+            run.error_message = str(exc)
+            run.finished_at = datetime.utcnow()
+    finally:
+        # Always persist the audit log
+        if run:
+            await insert_source_run(run)
 
 
 def setup_scheduler() -> None:

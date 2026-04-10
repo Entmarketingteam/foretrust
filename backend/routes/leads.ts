@@ -124,7 +124,7 @@ router.post('/:leadId/promote', async (req: Request, res: Response) => {
     // Create a deal from the lead
     const deal = await db.createDeal({
       name: `${lead.owner_name || 'Unknown'} - ${lead.property_address || lead.jurisdiction || ''}`.trim(),
-      source_type: 'manual' as const,
+      source_type: 'url',
     });
 
     // Link the lead to the deal

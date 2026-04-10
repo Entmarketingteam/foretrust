@@ -7,7 +7,7 @@ from kcoj.kycourts.net/casesearch across configured KY counties.
 from __future__ import annotations
 
 import logging
-from datetime import date, datetime
+from datetime import date, timedelta
 from typing import Any
 
 from playwright.async_api import Browser
@@ -17,6 +17,7 @@ from app.connectors.registry import register
 from app.models import Lead, LeadType, RawRecord, Vertical
 from app.browser import create_context, human_delay, human_type, safe_goto
 from app.captcha import detect_and_solve_captcha
+from app.pipeline.normalize import parse_date
 
 logger = logging.getLogger(__name__)
 
@@ -89,7 +90,7 @@ class KCOJCourtNetConnector(BaseConnector):
 
         # Set date range: last 30 days
         today = date.today()
-        thirty_ago = today - __import__("datetime").timedelta(days=30)
+        thirty_ago = today - timedelta(days=30)
         date_from = await page.query_selector("input#FiledDateFrom, input[name='FiledDateFrom']")
         if date_from:
             await date_from.fill(thirty_ago.strftime("%m/%d/%Y"))
@@ -159,15 +160,7 @@ class KCOJCourtNetConnector(BaseConnector):
                 lead_type = LeadType.ESTATE
 
         county = data.get("county", "")
-        filed_str = data.get("filed_date", "")
-        filed_date = None
-        if filed_str:
-            for fmt in ("%m/%d/%Y", "%Y-%m-%d", "%m-%d-%Y"):
-                try:
-                    filed_date = datetime.strptime(filed_str, fmt).date()
-                    break
-                except ValueError:
-                    continue
+        filed_date = parse_date(data.get("filed_date", ""))
 
         return Lead(
             source_key=self.source_key,

@@ -7,7 +7,7 @@ from datetime import date, datetime
 from enum import Enum
 from typing import Any
 
-from pydantic import BaseModel, Field, computed_field
+from pydantic import BaseModel, Field, model_validator
 
 
 class Vertical(str, Enum):
@@ -60,13 +60,14 @@ class Lead(BaseModel):
     raw_payload: dict[str, Any] = Field(default_factory=dict)
     hot_score: int | None = None
     scraped_at: datetime = Field(default_factory=datetime.utcnow)
+    dedupe_hash: str = ""
 
-    @computed_field
-    @property
-    def dedupe_hash(self) -> str:
-        """SHA-256 hash for deduplication: source + parcel + case_id."""
-        key = f"{self.source_key}|{self.parcel_number or ''}|{self.case_id or ''}|{self.property_address or ''}"
-        return hashlib.sha256(key.encode()).hexdigest()
+    @model_validator(mode="after")
+    def _compute_dedupe_hash(self) -> "Lead":
+        if not self.dedupe_hash:
+            key = f"{self.source_key}|{self.parcel_number or ''}|{self.case_id or ''}|{self.property_address or ''}"
+            self.dedupe_hash = hashlib.sha256(key.encode()).hexdigest()
+        return self
 
 
 class SourceRunStatus(str, Enum):

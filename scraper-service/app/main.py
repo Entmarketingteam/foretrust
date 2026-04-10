@@ -13,7 +13,9 @@ import logging
 from contextlib import asynccontextmanager
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, Header
+import asyncio
+
+from fastapi import FastAPI, HTTPException, Header, BackgroundTasks
 from pydantic import BaseModel
 
 from app.config import settings
@@ -102,6 +104,7 @@ class RunRequest(BaseModel):
 async def trigger_run(
     source_key: str,
     body: RunRequest | None = None,
+    background_tasks: BackgroundTasks = None,
     authorization: str | None = Header(None),
 ):
     _check_auth(authorization)
@@ -114,10 +117,10 @@ async def trigger_run(
 
     params = body.params if body else {}
 
-    # Run the connector (blocks until complete)
-    await run_connector_job(source_key, params)
+    # Dispatch as background task so the endpoint returns immediately
+    asyncio.create_task(run_connector_job(source_key, params))
 
-    return {"status": "ok", "source_key": source_key}
+    return {"status": "accepted", "source_key": source_key}
 
 
 # -----------------------------------------------------------------------
@@ -131,19 +134,6 @@ async def list_runs(
 ):
     _check_auth(authorization)
 
-    from app.storage.supabase_client import _get_client
-    client = _get_client()
-    if not client:
-        return {"runs": [], "error": "Supabase unavailable"}
-
-    try:
-        result = (
-            client.table("ft_lead_source_runs")
-            .select("*")
-            .order("started_at", desc=True)
-            .limit(limit)
-            .execute()
-        )
-        return {"runs": result.data or []}
-    except Exception as exc:
-        return {"runs": [], "error": str(exc)}
+    from app.storage.supabase_client import list_source_runs
+    runs = await list_source_runs(limit)
+    return {"runs": runs}

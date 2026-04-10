@@ -14,19 +14,19 @@ from app.models import Lead, LeadType
 
 
 # Base weight per distress signal type
-SIGNAL_WEIGHTS: dict[str, int] = {
-    LeadType.PROBATE.value: 25,
-    LeadType.ESTATE.value: 20,
-    LeadType.DEATH.value: 15,
-    LeadType.DIVORCE.value: 25,
-    LeadType.FORECLOSURE.value: 30,
-    LeadType.PRE_FORECLOSURE.value: 25,
-    LeadType.TAX_LIEN.value: 20,
-    LeadType.CODE_VIOLATION.value: 10,
-    LeadType.ZONING_CHANGE.value: 10,
-    LeadType.VACANCY.value: 15,
-    LeadType.COMMERCIAL_LISTING.value: 10,
-    LeadType.MF_LISTING.value: 10,
+SIGNAL_WEIGHTS: dict[LeadType, int] = {
+    LeadType.PROBATE: 25,
+    LeadType.ESTATE: 20,
+    LeadType.DEATH: 15,
+    LeadType.DIVORCE: 25,
+    LeadType.FORECLOSURE: 30,
+    LeadType.PRE_FORECLOSURE: 25,
+    LeadType.TAX_LIEN: 20,
+    LeadType.CODE_VIOLATION: 10,
+    LeadType.ZONING_CHANGE: 10,
+    LeadType.VACANCY: 15,
+    LeadType.COMMERCIAL_LISTING: 10,
+    LeadType.MF_LISTING: 10,
 }
 
 
@@ -41,7 +41,7 @@ def compute_hot_score(lead: Lead, stacked_signals: int = 0) -> int:
     5. Multiple signals on same parcel (stacking): +15 per additional signal
     Cap at 100.
     """
-    score = SIGNAL_WEIGHTS.get(lead.lead_type.value, 10)
+    score = SIGNAL_WEIGHTS.get(lead.lead_type, 10)
 
     # Recency boost
     if lead.case_filed_date:
@@ -86,8 +86,6 @@ def score_leads(leads: Sequence[Lead]) -> list[Lead]:
         lead.hot_score = compute_hot_score(lead, stacked_signals=stacked)
         scored.append(lead)
 
-    # Sort descending by hot_score
-    scored.sort(key=lambda l: l.hot_score or 0, reverse=True)
     return scored
 
 

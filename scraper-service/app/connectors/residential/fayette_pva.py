@@ -170,30 +170,10 @@ class FayettePVAConnector(BaseConnector):
         sqft = data.get("building_sqft")
         assessed = data.get("assessed_value")
 
-        # Classify the lead type
-        lead_type = LeadType.VACANCY  # default for PVA scan
+        lead_type = LeadType.VACANCY
 
-        # Check for tax delinquency markers in raw data
-        land_use = (data.get("land_use") or "").upper()
         if "DELINQ" in str(data).upper() or "TAX LIEN" in str(data).upper():
             lead_type = LeadType.TAX_LIEN
-
-        # Parse last sale date to check for vacancy (no transfer in 5+ years)
-        last_sale = data.get("last_sale_date")
-        if last_sale and isinstance(last_sale, str):
-            try:
-                for fmt in ("%m/%d/%Y", "%Y-%m-%d", "%Y%m%d"):
-                    try:
-                        sale_date = datetime.strptime(last_sale, fmt).date()
-                        days_since = (date.today() - sale_date).days
-                        if days_since < 365 * 5:
-                            # Recent transfer, less likely vacant
-                            pass
-                        break
-                    except ValueError:
-                        continue
-            except Exception:
-                pass
 
         return Lead(
             source_key=self.source_key,

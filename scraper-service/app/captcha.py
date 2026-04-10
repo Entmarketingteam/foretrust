@@ -70,61 +70,55 @@ class TwoCaptchaSolver:
     def __init__(self) -> None:
         self._api_key = settings.twocaptcha_api_key
 
-    async def solve_recaptcha_v2(self, site_key: str, page_url: str) -> str:
+    def _check_ready(self) -> None:
         if not self._api_key:
             raise RuntimeError("TWOCAPTCHA_API_KEY not set in Doppler")
         if not _budget.can_solve():
             raise RuntimeError("CAPTCHA daily budget exceeded")
 
+    async def solve_recaptcha_v2(self, site_key: str, page_url: str) -> str:
+        self._check_ready()
+        import asyncio
         from twocaptcha import TwoCaptcha
         solver = TwoCaptcha(self._api_key)
-        result = solver.recaptcha(sitekey=site_key, url=page_url)
+        result = await asyncio.to_thread(solver.recaptcha, sitekey=site_key, url=page_url)
         _budget.record_solve()
         logger.info("reCAPTCHA v2 solved via 2Captcha")
         return result["code"]
 
     async def solve_recaptcha_v3(self, site_key: str, page_url: str, action: str) -> str:
-        if not self._api_key:
-            raise RuntimeError("TWOCAPTCHA_API_KEY not set in Doppler")
-        if not _budget.can_solve():
-            raise RuntimeError("CAPTCHA daily budget exceeded")
-
+        self._check_ready()
+        import asyncio
         from twocaptcha import TwoCaptcha
         solver = TwoCaptcha(self._api_key)
-        result = solver.recaptcha(
-            sitekey=site_key, url=page_url, version="v3", action=action, score=0.9
+        result = await asyncio.to_thread(
+            solver.recaptcha, sitekey=site_key, url=page_url, version="v3", action=action, score=0.9
         )
         _budget.record_solve()
         logger.info("reCAPTCHA v3 solved via 2Captcha")
         return result["code"]
 
     async def solve_hcaptcha(self, site_key: str, page_url: str) -> str:
-        if not self._api_key:
-            raise RuntimeError("TWOCAPTCHA_API_KEY not set in Doppler")
-        if not _budget.can_solve():
-            raise RuntimeError("CAPTCHA daily budget exceeded")
-
+        self._check_ready()
+        import asyncio
         from twocaptcha import TwoCaptcha
         solver = TwoCaptcha(self._api_key)
-        result = solver.hcaptcha(sitekey=site_key, url=page_url)
+        result = await asyncio.to_thread(solver.hcaptcha, sitekey=site_key, url=page_url)
         _budget.record_solve()
         logger.info("hCaptcha solved via 2Captcha")
         return result["code"]
 
     async def solve_image(self, image_bytes: bytes) -> str:
-        if not self._api_key:
-            raise RuntimeError("TWOCAPTCHA_API_KEY not set in Doppler")
-        if not _budget.can_solve():
-            raise RuntimeError("CAPTCHA daily budget exceeded")
-
+        self._check_ready()
+        import asyncio, tempfile, os
         from twocaptcha import TwoCaptcha
         solver = TwoCaptcha(self._api_key)
-        import tempfile, os
         with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
             f.write(image_bytes)
             f.flush()
-            result = solver.normal(f.name)
-            os.unlink(f.name)
+            path = f.name
+        result = await asyncio.to_thread(solver.normal, path)
+        os.unlink(path)
         _budget.record_solve()
         return result["code"]
 
