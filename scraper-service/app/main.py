@@ -101,8 +101,8 @@ class RunRequest(BaseModel):
 @app.post("/run/{source_key}")
 async def trigger_run(
     source_key: str,
-    body: RunRequest | None = None,
     background_tasks: BackgroundTasks,
+    body: RunRequest | None = None,
     authorization: str | None = Header(None),
 ):
     _check_auth(authorization)
