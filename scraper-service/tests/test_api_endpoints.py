@@ -1,13 +1,4 @@
-"""Tests for FastAPI endpoints in app/main.py using TestClient.
-
-NOTE: All tests in this file are marked skip pending fix in fix/python-scraper-bugs.
-The source file app/main.py has a SyntaxError on Python 3.14:
-    `background_tasks: BackgroundTasks` (no default) follows
-    `body: RunRequest | None = None` (has a default)
-which is now a SyntaxError in Python 3.14 (PEP 570 enforcement).
-Fix: reorder the parameters in trigger_run() so BackgroundTasks comes before
-the optional body parameter.
-"""
+"""Tests for FastAPI endpoints in app/main.py using TestClient."""
 
 from __future__ import annotations
 
@@ -15,10 +6,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
-
-_SKIP_REASON = "pending fix in fix/python-scraper-bugs: SyntaxError in app/main.py trigger_run() parameter order"
-
-pytestmark = pytest.mark.skip(reason=_SKIP_REASON)
 
 
 # ---------------------------------------------------------------------------
