@@ -46,6 +46,10 @@ class _BudgetTracker:
 
 
 _budget = _BudgetTracker()
+logger.warning(
+    "CAPTCHA daily budget is tracked in-memory and resets on container restart. "
+    "Budget enforcement is approximate."
+)
 
 
 # ---------------------------------------------------------------------------

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 from typing import Any
+from urllib.parse import quote
 
 from playwright.async_api import Browser
 
@@ -54,8 +55,8 @@ class ZillowPublicConnector(BaseConnector):
 
     async def _lookup_address(self, page, address: str) -> RawRecord | None:
         """Search Zillow for an address and extract public records data."""
-        # Use Zillow search
-        search_url = f"{self.base_url}/homes/{address.replace(' ', '-')}_rb/"
+        # Use Zillow search — URL-encode the address to handle special characters
+        search_url = f"{self.base_url}/homes/{quote(address.replace(' ', '-'), safe='-')}_rb/"
         await safe_goto(page, search_url)
         await human_delay(2.0, 4.0)
 

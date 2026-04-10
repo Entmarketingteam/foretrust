@@ -13,8 +13,6 @@ import logging
 from contextlib import asynccontextmanager
 from typing import Any
 
-import asyncio
-
 from fastapi import FastAPI, HTTPException, Header, BackgroundTasks
 from pydantic import BaseModel
 
@@ -104,7 +102,7 @@ class RunRequest(BaseModel):
 async def trigger_run(
     source_key: str,
     body: RunRequest | None = None,
-    background_tasks: BackgroundTasks = None,
+    background_tasks: BackgroundTasks,
     authorization: str | None = Header(None),
 ):
     _check_auth(authorization)
@@ -118,7 +116,7 @@ async def trigger_run(
     params = body.params if body else {}
 
     # Dispatch as background task so the endpoint returns immediately
-    asyncio.create_task(run_connector_job(source_key, params))
+    background_tasks.add_task(run_connector_job, source_key, params)
 
     return {"status": "accepted", "source_key": source_key}
 

@@ -86,7 +86,7 @@ def score_leads(leads: Sequence[Lead]) -> list[Lead]:
         lead.hot_score = compute_hot_score(lead, stacked_signals=stacked)
         scored.append(lead)
 
-    return scored
+    return sorted(scored, key=lambda x: x.hot_score, reverse=True)
 
 
 def _parcel_key(lead: Lead) -> str | None:
