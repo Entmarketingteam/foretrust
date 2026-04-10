@@ -21,11 +21,19 @@ export async function triggerScraperRun(
     headers['Authorization'] = `Bearer ${SCRAPER_SHARED_TOKEN}`;
   }
 
-  const response = await fetch(url, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify({ params }),
-  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 30_000);
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ params }),
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
 
   if (!response.ok) {
     const errorText = await response.text();
@@ -42,7 +50,14 @@ export async function listConnectors(): Promise<unknown[]> {
     headers['Authorization'] = `Bearer ${SCRAPER_SHARED_TOKEN}`;
   }
 
-  const response = await fetch(url, { headers });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 30_000);
+  let response: Response;
+  try {
+    response = await fetch(url, { headers, signal: controller.signal });
+  } finally {
+    clearTimeout(timeout);
+  }
   if (!response.ok) {
     throw new Error(`Failed to list connectors: ${response.status}`);
   }

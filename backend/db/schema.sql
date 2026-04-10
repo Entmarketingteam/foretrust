@@ -222,7 +222,7 @@ CREATE POLICY "Users can view org memos" ON ft_deal_memos
 -- Raw leads from scrapers (pre-qualified)
 CREATE TABLE IF NOT EXISTS ft_leads (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  organization_id UUID REFERENCES ft_organizations(id) ON DELETE CASCADE,
+  organization_id UUID NOT NULL DEFAULT '00000000-0000-0000-0000-000000000000'::uuid REFERENCES ft_organizations(id) ON DELETE CASCADE,
   source_key VARCHAR(100) NOT NULL,
   vertical VARCHAR(20) NOT NULL CHECK (vertical IN ('commercial','residential','multifamily')),
   jurisdiction VARCHAR(100),
@@ -274,34 +274,43 @@ INSERT INTO ft_users (id, organization_id, email, name, role) VALUES
   ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000001', 'demo@foretrust.com', 'Demo User', 'admin')
 ON CONFLICT DO NOTHING;
 
--- MVP ONLY: Allow anon access for demo organization
--- Remove these policies in production!
-CREATE POLICY "Anon can view demo org" ON ft_organizations
-  FOR SELECT USING (id = '00000000-0000-0000-0000-000000000001');
+-- Trigger function to auto-update updated_at on row modification
+CREATE OR REPLACE FUNCTION update_updated_at_column()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW.updated_at = NOW();
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
 
-CREATE POLICY "Anon can view demo users" ON ft_users
-  FOR SELECT USING (organization_id = '00000000-0000-0000-0000-000000000001');
+CREATE TRIGGER update_ft_organizations_updated_at
+  BEFORE UPDATE ON ft_organizations
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
-CREATE POLICY "Anon can manage demo deals" ON ft_deals
-  FOR ALL USING (organization_id = '00000000-0000-0000-0000-000000000001');
+CREATE TRIGGER update_ft_users_updated_at
+  BEFORE UPDATE ON ft_users
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
-CREATE POLICY "Anon can manage demo documents" ON ft_deal_documents
-  FOR ALL USING (deal_id IN (SELECT id FROM ft_deals WHERE organization_id = '00000000-0000-0000-0000-000000000001'));
+CREATE TRIGGER update_ft_deals_updated_at
+  BEFORE UPDATE ON ft_deals
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
-CREATE POLICY "Anon can manage demo property attrs" ON ft_deal_property_attributes
-  FOR ALL USING (deal_id IN (SELECT id FROM ft_deals WHERE organization_id = '00000000-0000-0000-0000-000000000001'));
+CREATE TRIGGER update_ft_deal_property_attributes_updated_at
+  BEFORE UPDATE ON ft_deal_property_attributes
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
-CREATE POLICY "Anon can manage demo lease terms" ON ft_deal_lease_terms
-  FOR ALL USING (deal_id IN (SELECT id FROM ft_deals WHERE organization_id = '00000000-0000-0000-0000-000000000001'));
+CREATE TRIGGER update_ft_deal_lease_terms_updated_at
+  BEFORE UPDATE ON ft_deal_lease_terms
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
-CREATE POLICY "Anon can manage demo scores" ON ft_deal_scores
-  FOR ALL USING (deal_id IN (SELECT id FROM ft_deals WHERE organization_id = '00000000-0000-0000-0000-000000000001'));
+CREATE TRIGGER update_ft_deal_scores_updated_at
+  BEFORE UPDATE ON ft_deal_scores
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
-CREATE POLICY "Anon can manage demo financials" ON ft_deal_financials
-  FOR ALL USING (deal_id IN (SELECT id FROM ft_deals WHERE organization_id = '00000000-0000-0000-0000-000000000001'));
+CREATE TRIGGER update_ft_deal_financials_updated_at
+  BEFORE UPDATE ON ft_deal_financials
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
-CREATE POLICY "Anon can manage demo enrichment" ON ft_deal_enrichment
-  FOR ALL USING (deal_id IN (SELECT id FROM ft_deals WHERE organization_id = '00000000-0000-0000-0000-000000000001'));
-
-CREATE POLICY "Anon can manage demo memos" ON ft_deal_memos
-  FOR ALL USING (deal_id IN (SELECT id FROM ft_deals WHERE organization_id = '00000000-0000-0000-0000-000000000001'));
+CREATE TRIGGER update_ft_deal_enrichment_updated_at
+  BEFORE UPDATE ON ft_deal_enrichment
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();

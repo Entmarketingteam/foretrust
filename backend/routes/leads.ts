@@ -53,6 +53,13 @@ router.get('/export.csv', async (req: Request, res: Response) => {
     });
 
     // Build CSV
+    const escapeCsv = (val: unknown) => {
+      const str = String(val ?? '');
+      if (str.includes('"') || str.includes(',') || str.includes('\n')) {
+        return `"${str.replace(/"/g, '""')}"`;
+      }
+      return str;
+    };
     const headers = [
       'hot_score', 'lead_type', 'vertical', 'owner_name', 'property_address',
       'mailing_address', 'city', 'state', 'postal_code', 'parcel_number',
@@ -64,8 +71,7 @@ router.get('/export.csv', async (req: Request, res: Response) => {
       const row = headers.map(h => {
         const val = (lead as Record<string, unknown>)[h];
         if (val === null || val === undefined) return '';
-        const str = String(val);
-        return str.includes(',') ? `"${str}"` : str;
+        return escapeCsv(val);
       });
       csvRows.push(row.join(','));
     }
