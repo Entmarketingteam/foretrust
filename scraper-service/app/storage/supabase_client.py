@@ -143,9 +143,13 @@ async def list_source_runs(limit: int = 20) -> list[dict[str, Any]]:
         return []
 
 
+DEFAULT_ORG_ID = "00000000-0000-0000-0000-000000000001"
+
+
 def _lead_to_row(lead: Lead) -> dict[str, Any]:
     """Convert a Lead model to a Supabase row dict."""
     return {
+        "organization_id": DEFAULT_ORG_ID,
         "source_key": lead.source_key,
         "vertical": lead.vertical.value,
         "jurisdiction": lead.jurisdiction,
