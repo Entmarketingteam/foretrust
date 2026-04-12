@@ -67,7 +67,7 @@
 <body class="bg-slate-50 font-sans antialiased" x-data="app()" x-init="init()">
 
   <!-- Toast Notifications -->
-  <div class="fixed top-4 right-4 z-[100] space-y-2 w-80" x-cloak>
+  <div class="fixed top-4 right-2 sm:right-4 z-[100] space-y-2 w-72 sm:w-80" x-cloak>
     <template x-for="toast in toasts" :key="toast.id">
       <div class="fade-up flex items-start gap-3 p-4 rounded-xl shadow-xl border"
            :class="{
@@ -176,14 +176,20 @@
               <h1 class="text-xl font-bold text-slate-900">Distress Leads</h1>
               <p class="text-sm text-slate-500 mt-0.5">Probate, foreclosure, tax lien, and vacancy leads across KY counties</p>
             </div>
-            <div class="flex items-center gap-3">
-              <a href="/api/foretrust/leads/export.csv" class="flex items-center gap-2 px-4 py-2 rounded-lg border border-slate-200 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors">
+            <div class="flex items-center gap-2 flex-wrap justify-end">
+              <a href="/api/foretrust/leads/export.csv" class="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-slate-200 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors">
                 <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
-                Export CSV
+                <span class="hidden sm:inline">Export CSV</span>
               </a>
-              <button @click="showScrapeModal = true" class="flex items-center gap-2 px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 transition-colors">
+              <button @click="interpretBatch()" :disabled="batchInterpreting"
+                      class="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-violet-200 text-sm font-medium text-violet-700 hover:bg-violet-50 transition-colors disabled:opacity-50">
+                <svg x-show="batchInterpreting" class="w-4 h-4 spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+                <svg x-show="!batchInterpreting" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/></svg>
+                <span x-text="batchInterpreting ? 'Analyzing...' : 'Analyze All'"></span>
+              </button>
+              <button @click="showScrapeModal = true" class="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 transition-colors">
                 <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"/><path stroke-linecap="round" stroke-linejoin="round" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-                Run Scraper
+                <span class="hidden sm:inline">Run Scraper</span>
               </button>
             </div>
           </div>
@@ -212,7 +218,7 @@
 
         <!-- Filters -->
         <div class="bg-white border-b border-slate-200 px-4 md:px-8 py-3">
-          <div class="flex items-center gap-3 flex-wrap">
+          <div class="flex flex-wrap gap-y-2 gap-x-3 items-center">
             <div class="flex items-center gap-2">
               <label class="text-xs font-semibold text-slate-500 uppercase tracking-wide">Type</label>
               <select x-model="leadFilters.lead_type" @change="leadFilters.offset = 0; loadLeads()"
@@ -237,17 +243,17 @@
               </select>
             </div>
 
-            <div class="flex items-center gap-3">
-              <label class="text-xs font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap">Min Hot Score</label>
+            <div class="flex items-center gap-2">
+              <label class="text-xs font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap">Min Score</label>
               <input type="range" min="0" max="100" step="5" x-model="leadFilters.hot_score_min"
                      @change="leadFilters.offset = 0; loadLeads()"
-                     class="w-28 accent-indigo-600">
-              <span class="text-sm font-bold text-indigo-600 w-8" x-text="leadFilters.hot_score_min"></span>
+                     class="w-24 accent-indigo-600">
+              <span class="text-sm font-bold text-indigo-600 w-7" x-text="leadFilters.hot_score_min"></span>
             </div>
 
             <button @click="leadFilters = {lead_type: '', jurisdiction: '', hot_score_min: 0, offset: 0}; loadLeads()"
                     class="text-xs text-slate-400 hover:text-slate-600 transition-colors ml-auto">
-              Clear Filters
+              Clear
             </button>
           </div>
         </div>
@@ -279,20 +285,18 @@
             <table class="w-full text-sm min-w-[700px]">
               <thead>
                 <tr class="bg-slate-50 border-b border-slate-200">
-                  <th class="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Hot Score</th>
+                  <th class="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Score</th>
                   <th class="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Type</th>
                   <th class="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Owner</th>
-                  <th class="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Property Address</th>
-                  <th class="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">County</th>
-                  <th class="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Source</th>
-                  <th class="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Scraped</th>
+                  <th class="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Property / Location</th>
+                  <th class="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">AI Intel</th>
                   <th class="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Actions</th>
                 </tr>
               </thead>
               <tbody class="divide-y divide-slate-100">
                 <template x-for="lead in leads" :key="lead.id">
-                  <tr class="hover:bg-slate-50 transition-colors group">
-                    <td class="px-4 py-3">
+                  <tr class="hover:bg-slate-50 transition-colors group cursor-pointer" @click="openLeadDetail(lead)">
+                    <td class="px-4 py-3" @click.stop>
                       <span class="badge text-white font-bold"
                             :class="hotScoreBadge(lead.hot_score)"
                             x-text="lead.hot_score != null ? lead.hot_score : '—'"></span>
@@ -300,13 +304,42 @@
                     <td class="px-4 py-3">
                       <span class="badge" :class="leadTypeBadge(lead.lead_type)" x-text="(lead.lead_type || '—').replace(/_/g, ' ')"></span>
                     </td>
-                    <td class="px-4 py-3 text-slate-900 font-medium max-w-[140px] truncate" :title="lead.owner_name" x-text="lead.owner_name || '—'"></td>
-                    <td class="px-4 py-3 text-slate-600 max-w-[200px] truncate" :title="lead.property_address" x-text="lead.property_address || '—'"></td>
-                    <td class="px-4 py-3 text-slate-600" x-text="lead.jurisdiction || '—'"></td>
-                    <td class="px-4 py-3 text-slate-500 text-xs font-mono" x-text="lead.source_key || '—'"></td>
-                    <td class="px-4 py-3 text-slate-500 text-xs" x-text="formatDate(lead.scraped_at)"></td>
-                    <td class="px-4 py-3">
-                      <div class="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <td class="px-4 py-3 max-w-[160px]">
+                      <div class="font-medium text-slate-900 truncate" :title="lead.owner_name" x-text="lead.owner_name || '—'"></div>
+                      <div x-show="lead.ai_interpretation?.owner_type" class="flex items-center gap-1 mt-0.5">
+                        <span class="text-xs px-1.5 py-0.5 rounded font-medium"
+                              :class="ownerTypeBadge(lead.ai_interpretation?.owner_type)"
+                              x-text="lead.ai_interpretation?.owner_type || ''"></span>
+                      </div>
+                    </td>
+                    <td class="px-4 py-3 max-w-[200px]">
+                      <div class="text-slate-700 truncate text-sm" :title="lead.property_address" x-text="lead.property_address || '—'"></div>
+                      <div class="text-xs text-slate-400 mt-0.5" x-text="[lead.city, lead.jurisdiction].filter(Boolean).join(' · ') || lead.state || ''"></div>
+                    </td>
+                    <td class="px-4 py-3 max-w-[200px]">
+                      <template x-if="lead.ai_interpretation">
+                        <div>
+                          <div class="flex items-center gap-1.5 mb-1">
+                            <span class="text-xs font-semibold px-1.5 py-0.5 rounded"
+                                  :class="leadPotentialBadge(lead.ai_interpretation?.lead_potential)"
+                                  x-text="lead.ai_interpretation?.lead_potential || ''"></span>
+                            <span class="text-xs text-slate-500 truncate" x-text="lead.ai_interpretation?.likely_industry || ''"></span>
+                          </div>
+                          <div class="text-xs text-slate-500 leading-snug line-clamp-2" x-text="lead.ai_interpretation?.opportunity_summary || ''"></div>
+                        </div>
+                      </template>
+                      <template x-if="!lead.ai_interpretation">
+                        <button @click.stop="interpretSingleLead(lead)"
+                                :disabled="lead._interpreting"
+                                class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-violet-50 text-violet-700 hover:bg-violet-100 transition-colors disabled:opacity-50">
+                          <svg x-show="lead._interpreting" class="w-3 h-3 spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+                          <svg x-show="!lead._interpreting" class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/></svg>
+                          <span x-text="lead._interpreting ? 'Analyzing...' : 'Analyze'"></span>
+                        </button>
+                      </template>
+                    </td>
+                    <td class="px-4 py-3" @click.stop>
+                      <div class="flex items-center gap-2">
                         <button @click="openLeadDetail(lead)"
                                 class="px-2.5 py-1 rounded-md text-xs font-medium bg-slate-100 text-slate-700 hover:bg-slate-200 transition-colors">
                           View
@@ -315,7 +348,7 @@
                                 :disabled="lead.deal_id"
                                 class="px-2.5 py-1 rounded-md text-xs font-medium transition-colors"
                                 :class="lead.deal_id ? 'bg-green-50 text-green-600 cursor-default' : 'bg-indigo-50 text-indigo-700 hover:bg-indigo-100'"
-                                x-text="lead.deal_id ? 'Promoted' : 'Promote'">
+                                x-text="lead.deal_id ? '✓ Deal' : 'Promote'">
                         </button>
                       </div>
                     </td>
@@ -411,7 +444,7 @@
                     <td class="px-4 py-3 text-slate-500 capitalize" x-text="deal.source_type || '—'"></td>
                     <td class="px-4 py-3 text-slate-500 text-xs" x-text="formatDate(deal.created_at)"></td>
                     <td class="px-4 py-3" @click.stop>
-                      <div class="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <div class="flex items-center gap-2">
                         <button @click.stop="openDealDetail(deal.id)"
                                 class="px-2.5 py-1 rounded-md text-xs font-medium bg-slate-100 text-slate-700 hover:bg-slate-200 transition-colors">
                           View
@@ -647,8 +680,21 @@
           <span x-show="selectedLead?.deal_id" class="badge bg-green-100 text-green-700 text-sm">Promoted to Deal</span>
         </div>
 
+        <!-- Tab Bar -->
+        <div class="flex border-b border-slate-200 mb-6">
+          <button @click="leadDetailTab = 'details'"
+                  :class="leadDetailTab === 'details' ? 'border-b-2 border-indigo-500 text-indigo-600 font-semibold' : 'text-slate-500 hover:text-slate-700'"
+                  class="px-4 py-2 text-sm transition-colors -mb-px">Lead Details</button>
+          <button @click="leadDetailTab = 'raw'"
+                  :class="leadDetailTab === 'raw' ? 'border-b-2 border-indigo-500 text-indigo-600 font-semibold' : 'text-slate-500 hover:text-slate-700'"
+                  class="px-4 py-2 text-sm transition-colors -mb-px">Raw Data</button>
+        </div>
+
+        <!-- Lead Details tab -->
+        <div x-show="leadDetailTab === 'details'">
+
         <!-- Details Grid -->
-        <div class="grid grid-cols-2 gap-4">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div class="bg-slate-50 rounded-xl p-4">
             <p class="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">Property Address</p>
             <p class="text-sm text-slate-900 font-medium" x-text="selectedLead?.property_address || '—'"></p>
@@ -699,6 +745,202 @@
           </div>
         </div>
 
+        <!-- AI Interpretation Panel -->
+        <div class="mt-6">
+          <div class="flex items-center justify-between mb-3">
+            <h3 class="text-sm font-bold text-slate-700 uppercase tracking-wide">Claude AI Analysis</h3>
+            <button @click="interpretSingleLead(selectedLead)"
+                    :disabled="selectedLead?._interpreting"
+                    class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-violet-50 text-violet-700 hover:bg-violet-100 transition-colors disabled:opacity-50">
+              <svg x-show="selectedLead?._interpreting" class="w-3 h-3 spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+              <svg x-show="!selectedLead?._interpreting" class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+              <span x-text="selectedLead?.ai_interpretation ? 'Re-analyze' : 'Analyze with Claude'"></span>
+            </button>
+          </div>
+
+          <!-- AI result -->
+          <template x-if="selectedLead?.ai_interpretation">
+            <div class="space-y-3">
+              <!-- Summary banner -->
+              <div class="rounded-xl p-4 border"
+                   :class="selectedLead.ai_interpretation.lead_potential === 'hot' ? 'bg-red-50 border-red-200' : selectedLead.ai_interpretation.lead_potential === 'warm' ? 'bg-amber-50 border-amber-200' : 'bg-slate-50 border-slate-200'">
+                <p class="text-sm font-medium"
+                   :class="selectedLead.ai_interpretation.lead_potential === 'hot' ? 'text-red-800' : selectedLead.ai_interpretation.lead_potential === 'warm' ? 'text-amber-800' : 'text-slate-700'"
+                   x-text="selectedLead.ai_interpretation.opportunity_summary"></p>
+              </div>
+
+              <!-- Key facts grid -->
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div class="bg-slate-50 rounded-xl p-3">
+                  <p class="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">Owner Type</p>
+                  <div class="flex items-center gap-2">
+                    <span class="badge text-xs font-semibold" :class="ownerTypeBadge(selectedLead.ai_interpretation.owner_type)" x-text="selectedLead.ai_interpretation.owner_type"></span>
+                    <span class="text-xs text-slate-500" x-text="'Owner-operator: ' + selectedLead.ai_interpretation.owner_operator_likelihood"></span>
+                  </div>
+                </div>
+                <div class="bg-slate-50 rounded-xl p-3">
+                  <p class="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">Industry</p>
+                  <p class="text-sm font-semibold text-slate-900" x-text="selectedLead.ai_interpretation.likely_industry"></p>
+                  <p class="text-xs text-slate-500 mt-0.5" x-text="selectedLead.ai_interpretation.business_category"></p>
+                </div>
+                <div class="bg-slate-50 rounded-xl p-3">
+                  <p class="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">Est. Years in Business</p>
+                  <p class="text-sm font-semibold text-slate-900" x-text="selectedLead.ai_interpretation.years_in_business_estimate != null ? selectedLead.ai_interpretation.years_in_business_estimate + ' years' : 'Unknown'"></p>
+                  <p class="text-xs text-slate-400 mt-0.5" x-text="selectedLead.ai_interpretation.years_in_business_basis"></p>
+                </div>
+                <div class="bg-slate-50 rounded-xl p-3">
+                  <p class="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">Lead Potential</p>
+                  <span class="badge text-sm font-bold" :class="leadPotentialBadge(selectedLead.ai_interpretation.lead_potential)" x-text="selectedLead.ai_interpretation.lead_potential?.toUpperCase()"></span>
+                </div>
+              </div>
+
+              <!-- Key signals -->
+              <div class="bg-slate-50 rounded-xl p-3">
+                <p class="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Key Signals</p>
+                <ul class="space-y-1">
+                  <template x-for="signal in (selectedLead.ai_interpretation.key_signals || [])" :key="signal">
+                    <li class="flex items-start gap-2 text-xs text-slate-700">
+                      <span class="mt-0.5 shrink-0 w-1.5 h-1.5 rounded-full bg-violet-400"></span>
+                      <span x-text="signal"></span>
+                    </li>
+                  </template>
+                </ul>
+              </div>
+
+              <!-- Contact strategy -->
+              <div class="bg-violet-50 border border-violet-100 rounded-xl p-3">
+                <p class="text-xs font-semibold text-violet-600 uppercase tracking-wide mb-1">Contact Strategy</p>
+                <p class="text-sm text-violet-800" x-text="selectedLead.ai_interpretation.contact_strategy"></p>
+              </div>
+
+              <p class="text-xs text-slate-400 text-right" x-text="'Analyzed ' + formatDate(selectedLead.ai_interpretation.interpreted_at)"></p>
+            </div>
+          </template>
+
+          <!-- No analysis yet -->
+          <template x-if="!selectedLead?.ai_interpretation && !selectedLead?._interpreting">
+            <div class="bg-slate-50 border border-slate-200 rounded-xl p-5 text-center">
+              <svg class="w-8 h-8 text-violet-300 mx-auto mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/></svg>
+              <p class="text-sm text-slate-500">Click "Analyze with Claude" to get owner type, industry, business age, and lead intelligence.</p>
+            </div>
+          </template>
+
+          <!-- Loading state -->
+          <template x-if="selectedLead?._interpreting">
+            <div class="bg-violet-50 border border-violet-100 rounded-xl p-5 flex items-center gap-3">
+              <svg class="w-5 h-5 text-violet-500 spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+              <p class="text-sm text-violet-700 font-medium">Claude is analyzing this lead...</p>
+            </div>
+          </template>
+        </div>
+
+        <!-- SLB Thesis Panel -->
+        <div class="mt-6">
+          <div class="flex items-center justify-between mb-3">
+            <h3 class="text-sm font-bold text-slate-700 uppercase tracking-wide">Sale-Leaseback Thesis</h3>
+            <button @click="researchSlb(selectedLead)"
+                    :disabled="selectedLead?._slbResearching"
+                    class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-emerald-50 text-emerald-700 hover:bg-emerald-100 transition-colors disabled:opacity-50">
+              <svg x-show="selectedLead?._slbResearching" class="w-3 h-3 spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+              <svg x-show="!selectedLead?._slbResearching" class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+              <span x-text="selectedLead?.slb_thesis ? 'Re-research' : 'Research SLB'"></span>
+            </button>
+          </div>
+
+          <!-- SLB result -->
+          <template x-if="selectedLead?.slb_thesis">
+            <div class="space-y-3">
+
+              <!-- Motivation score banner + intro -->
+              <div class="rounded-xl p-4 border"
+                   :class="selectedLead.slb_thesis.motivation_score === 'high' ? 'bg-emerald-50 border-emerald-200' : selectedLead.slb_thesis.motivation_score === 'medium' ? 'bg-sky-50 border-sky-200' : 'bg-slate-50 border-slate-200'">
+                <div class="flex items-center gap-2 mb-2">
+                  <span class="text-xs font-bold px-2 py-0.5 rounded uppercase"
+                        :class="selectedLead.slb_thesis.motivation_score === 'high' ? 'bg-emerald-200 text-emerald-800' : selectedLead.slb_thesis.motivation_score === 'medium' ? 'bg-sky-200 text-sky-800' : 'bg-slate-200 text-slate-600'"
+                        x-text="(selectedLead.slb_thesis.motivation_score || 'unknown') + ' motivation'"></span>
+                  <span class="text-xs text-slate-400" x-show="selectedLead.slb_thesis.years_at_location_estimate"
+                        x-text="selectedLead.slb_thesis.years_at_location_estimate + ' yrs at location'"></span>
+                </div>
+                <p class="text-sm leading-relaxed"
+                   :class="selectedLead.slb_thesis.motivation_score === 'high' ? 'text-emerald-800' : selectedLead.slb_thesis.motivation_score === 'medium' ? 'text-sky-800' : 'text-slate-700'"
+                   x-text="selectedLead.slb_thesis.intro"></p>
+              </div>
+
+              <!-- Conversation opener callout -->
+              <div class="bg-amber-50 border border-amber-200 rounded-xl p-3">
+                <p class="text-xs font-semibold text-amber-600 uppercase tracking-wide mb-1">Opening Line</p>
+                <p class="text-sm text-amber-900 italic" x-text="'\u201c' + selectedLead.slb_thesis.key_conversation_opener + '\u201d'"></p>
+              </div>
+
+              <!-- Motivation factors -->
+              <div class="bg-slate-50 rounded-xl p-3">
+                <p class="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Why They Might Sell</p>
+                <ul class="space-y-1.5">
+                  <template x-for="factor in (selectedLead.slb_thesis.motivation_factors || [])" :key="factor">
+                    <li class="flex items-start gap-2 text-xs text-slate-700">
+                      <span class="mt-0.5 shrink-0 w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+                      <span x-text="factor"></span>
+                    </li>
+                  </template>
+                </ul>
+              </div>
+
+              <!-- Industry + Building case side by side -->
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div class="bg-slate-50 rounded-xl p-3">
+                  <p class="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">Industry Context</p>
+                  <p class="text-xs text-slate-700 leading-relaxed" x-text="selectedLead.slb_thesis.industry_trend_context"></p>
+                </div>
+                <div class="bg-slate-50 rounded-xl p-3">
+                  <p class="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">Building Case</p>
+                  <p class="text-xs text-slate-700 leading-relaxed" x-text="selectedLead.slb_thesis.building_case"></p>
+                  <p class="text-xs text-slate-400 mt-1" x-show="selectedLead.slb_thesis.years_at_location_estimate" x-text="'~' + selectedLead.slb_thesis.years_at_location_estimate + ' yrs: ' + selectedLead.slb_thesis.years_at_location_basis"></p>
+                </div>
+              </div>
+
+              <!-- News signals -->
+              <div x-show="selectedLead.slb_thesis.news_signals?.length > 0" class="bg-slate-50 rounded-xl p-3">
+                <p class="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Research Signals</p>
+                <div class="space-y-2">
+                  <template x-for="signal in (selectedLead.slb_thesis.news_signals || [])" :key="signal.headline">
+                    <div class="flex items-start gap-2">
+                      <svg class="w-3 h-3 text-slate-400 mt-0.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                      <div>
+                        <a x-show="signal.url" :href="signal.url" target="_blank" rel="noopener"
+                           class="text-xs font-medium text-indigo-600 hover:text-indigo-800 transition-colors" x-text="signal.headline"></a>
+                        <p x-show="!signal.url" class="text-xs font-medium text-slate-700" x-text="signal.headline"></p>
+                        <p class="text-xs text-slate-400 mt-0.5" x-text="signal.relevance"></p>
+                      </div>
+                    </div>
+                  </template>
+                </div>
+              </div>
+
+              <p class="text-xs text-slate-400 text-right" x-text="'Researched ' + formatDate(selectedLead.slb_thesis.researched_at)"></p>
+            </div>
+          </template>
+
+          <!-- No thesis yet -->
+          <template x-if="!selectedLead?.slb_thesis && !selectedLead?._slbResearching">
+            <div class="bg-slate-50 border border-slate-200 rounded-xl p-5 text-center">
+              <svg class="w-8 h-8 text-emerald-300 mx-auto mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+              <p class="text-sm text-slate-500">Click "Research SLB" to search the web for business history, news signals, and generate a hypothetical sale-leaseback thesis.</p>
+              <p class="text-xs text-slate-400 mt-1">Uses Tavily + Claude — no API credits.</p>
+            </div>
+          </template>
+
+          <!-- Loading state -->
+          <template x-if="selectedLead?._slbResearching">
+            <div class="bg-emerald-50 border border-emerald-100 rounded-xl p-5 flex items-center gap-3">
+              <svg class="w-5 h-5 text-emerald-500 spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+              <div>
+                <p class="text-sm text-emerald-700 font-medium">Researching owner + generating SLB thesis...</p>
+                <p class="text-xs text-emerald-500 mt-0.5">Searching web, analyzing signals, writing thesis</p>
+              </div>
+            </div>
+          </template>
+        </div>
+
         <!-- Promote CTA -->
         <div class="mt-6 flex gap-3" x-show="!selectedLead?.deal_id">
           <button @click="promoteLead(selectedLead); showLeadDetail = false"
@@ -712,6 +954,58 @@
             Already promoted to a deal
           </div>
         </div>
+        </div><!-- /details tab -->
+
+        <!-- Raw Data tab -->
+        <div x-show="leadDetailTab === 'raw'" class="space-y-5">
+          <template x-if="!selectedLead?.raw_payload">
+            <div class="bg-slate-50 rounded-xl p-6 text-center">
+              <p class="text-sm text-slate-400">No raw payload stored for this lead.</p>
+            </div>
+          </template>
+
+          <template x-if="selectedLead?.raw_payload">
+            <div class="space-y-5">
+              <!-- Scraped key-value fields (nulls excluded, all_attributes excluded) -->
+              <div>
+                <p class="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3">Scraped Fields</p>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <template x-for="entry in payloadEntries(selectedLead.raw_payload)" :key="entry.key">
+                    <div class="bg-slate-50 rounded-lg px-3 py-2 min-w-0">
+                      <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide truncate"
+                         x-text="entry.key.replace(/_/g, ' ')"></p>
+                      <p class="text-sm text-slate-900 font-mono break-all mt-0.5" x-text="entry.value"></p>
+                    </div>
+                  </template>
+                  <template x-if="payloadEntries(selectedLead.raw_payload).length === 0">
+                    <p class="text-sm text-slate-400 col-span-2">All fields are empty.</p>
+                  </template>
+                </div>
+              </div>
+
+              <!-- Raw source attributes (collapsible) -->
+              <template x-if="selectedLead.raw_payload.all_attributes">
+                <div x-data="{ showAttrs: false }">
+                  <button @click="showAttrs = !showAttrs"
+                          class="flex items-center gap-2 text-xs font-semibold text-slate-500 uppercase tracking-wide hover:text-slate-700 transition-colors mb-2">
+                    <svg :class="showAttrs ? 'rotate-90' : ''" class="w-3 h-3 transition-transform shrink-0"
+                         fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/>
+                    </svg>
+                    <span x-text="showAttrs ? 'Hide' : 'Show'"></span>&nbsp;All Source Attributes
+                    <span class="font-normal text-slate-400"
+                          x-text="'(' + Object.keys(selectedLead.raw_payload.all_attributes).length + ' fields)'"></span>
+                  </button>
+                  <div x-show="showAttrs" x-cloak class="bg-slate-900 rounded-xl p-4 overflow-x-auto">
+                    <pre class="text-xs text-emerald-400 font-mono leading-relaxed whitespace-pre-wrap break-all"
+                         x-text="JSON.stringify(selectedLead.raw_payload.all_attributes, null, 2)"></pre>
+                  </div>
+                </div>
+              </template>
+            </div>
+          </template>
+        </div><!-- /raw tab -->
+
       </div>
     </div>
   </div>
@@ -765,9 +1059,9 @@
 
         <!-- OVERVIEW TAB -->
         <div x-show="dealTab === 'Overview'">
-          <div class="grid grid-cols-2 gap-4">
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
 
-            <div class="col-span-2">
+            <div class="col-span-1 sm:col-span-2">
               <h3 class="text-sm font-bold text-slate-700 uppercase tracking-wide mb-3">Property</h3>
             </div>
 
@@ -813,12 +1107,12 @@
             </div>
 
             <!-- No property data -->
-            <div x-show="!selectedDeal?.property" class="col-span-2 bg-slate-50 rounded-xl p-6 text-center">
+            <div x-show="!selectedDeal?.property" class="col-span-1 sm:col-span-2 bg-slate-50 rounded-xl p-6 text-center">
               <p class="text-slate-400 text-sm">No property data yet. Run the pipeline to ingest and enrich this deal.</p>
             </div>
 
             <!-- Lease Section -->
-            <div class="col-span-2 mt-4">
+            <div class="col-span-1 sm:col-span-2 mt-4">
               <h3 class="text-sm font-bold text-slate-700 uppercase tracking-wide mb-3">Lease Terms</h3>
             </div>
 
@@ -847,7 +1141,7 @@
               <p class="text-sm text-slate-900 font-semibold" x-text="selectedDeal?.lease?.rent_psf ? '$' + selectedDeal.lease.rent_psf + '/sqft' : '—'"></p>
             </div>
 
-            <div x-show="!selectedDeal?.lease" class="col-span-2 bg-slate-50 rounded-xl p-6 text-center">
+            <div x-show="!selectedDeal?.lease" class="col-span-1 sm:col-span-2 bg-slate-50 rounded-xl p-6 text-center">
               <p class="text-slate-400 text-sm">No lease data yet.</p>
             </div>
           </div>
@@ -908,7 +1202,7 @@
             <p class="text-slate-400 text-xs mt-1">Run the AI pipeline to generate underwriting.</p>
           </div>
 
-          <div x-show="selectedDeal?.financials" class="grid grid-cols-2 gap-4">
+          <div x-show="selectedDeal?.financials" class="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <template x-for="[label, key, fmt] in [
               ['Purchase Price', 'purchase_price', 'currency'],
               ['NOI Year 1', 'noi_year1', 'currency'],
@@ -1030,10 +1324,14 @@
 
         // Selected items
         selectedLead: null,
+        leadDetailTab: 'details',
         selectedDeal: null,
         dealDetailLoading: false,
         dealTab: 'Overview',
         pipelineRunning: false,
+
+        // AI interpretation
+        batchInterpreting: false,
 
         // Toast
         toasts: [],
@@ -1313,7 +1611,73 @@
 
         openLeadDetail(lead) {
           this.selectedLead = lead;
+          this.leadDetailTab = 'details';
           this.showLeadDetail = true;
+        },
+
+        payloadEntries(payload) {
+          if (!payload) return [];
+          return Object.entries(payload)
+            .filter(([k, v]) => v !== null && v !== undefined && v !== '' && k !== 'all_attributes')
+            .map(([k, v]) => ({
+              key: k,
+              value: typeof v === 'object' ? JSON.stringify(v) : String(v),
+            }));
+        },
+
+        async interpretSingleLead(lead) {
+          if (!lead || lead._interpreting) return;
+          lead._interpreting = true;
+          // Trigger Alpine reactivity
+          if (this.selectedLead?.id === lead.id) this.selectedLead = { ...lead };
+          try {
+            const res = await fetch(`${API}/leads/${lead.id}/interpret`, { method: 'POST' });
+            const json = await res.json();
+            if (json.success) {
+              const interp = json.data?.ai_interpretation;
+              // Update in-place in leads array
+              const idx = this.leads.findIndex(l => l.id === lead.id);
+              if (idx !== -1) {
+                this.leads[idx] = { ...this.leads[idx], ai_interpretation: interp, _interpreting: false };
+              }
+              // Update selected lead if open
+              if (this.selectedLead?.id === lead.id) {
+                this.selectedLead = { ...this.selectedLead, ai_interpretation: interp, _interpreting: false };
+              }
+              this.toast(`AI analysis complete — ${interp?.lead_potential || ''} lead`, 'success');
+            } else {
+              lead._interpreting = false;
+              this.toast(json.error || 'Interpretation failed.', 'error');
+            }
+          } catch (e) {
+            lead._interpreting = false;
+            this.toast('Claude analysis request failed.', 'error');
+          }
+        },
+
+        async interpretBatch() {
+          if (this.batchInterpreting) return;
+          this.batchInterpreting = true;
+          this.toast('Sending leads to Claude for analysis — up to 20 at a time...', 'info');
+          try {
+            const res = await fetch(`${API}/leads/interpret-batch`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ limit: 20 })
+            });
+            const json = await res.json();
+            if (json.success) {
+              const { interpreted, failed } = json.data;
+              this.toast(`Analysis complete — ${interpreted} leads analyzed${failed > 0 ? `, ${failed} failed` : ''}`, 'success');
+              await this.loadLeads();
+            } else {
+              this.toast(json.error || 'Batch analysis failed.', 'error');
+            }
+          } catch (e) {
+            this.toast('Batch analysis request failed.', 'error');
+          } finally {
+            this.batchInterpreting = false;
+          }
         },
 
         // ===== TOAST =====
@@ -1327,6 +1691,27 @@
         },
 
         // ===== HELPERS =====
+
+        ownerTypeBadge(type) {
+          const map = {
+            LLC: 'bg-blue-100 text-blue-700',
+            individual: 'bg-slate-100 text-slate-600',
+            trust: 'bg-purple-100 text-purple-700',
+            corporate: 'bg-orange-100 text-orange-700',
+            government: 'bg-teal-100 text-teal-700',
+            unknown: 'bg-slate-100 text-slate-400',
+          };
+          return map[type] || 'bg-slate-100 text-slate-500';
+        },
+
+        leadPotentialBadge(potential) {
+          const map = {
+            hot: 'bg-red-100 text-red-700',
+            warm: 'bg-amber-100 text-amber-700',
+            cold: 'bg-slate-100 text-slate-500',
+          };
+          return map[potential] || 'bg-slate-100 text-slate-500';
+        },
 
         hotScoreBadge(score) {
           if (score == null) return 'bg-slate-300 text-slate-600';
