@@ -2,7 +2,7 @@
 // Bridges the Node backend to the Python scraper service
 import { Router, Request, Response } from 'express';
 import * as db from '../services/database.js';
-import { triggerScraperRun } from '../services/scraper.js';
+import { triggerScraperRun, triggerFullPipeline } from '../services/scraper.js';
 import { interpretLead, generateSlbThesis } from '../services/claude.js';
 import { researchLead } from '../services/search.js';
 import { enrichLeadContact } from '../services/contact.js';
@@ -101,6 +101,18 @@ router.get('/:leadId', async (req: Request, res: Response) => {
   } catch (error) {
     console.error('Error getting lead:', error);
     res.status(500).json({ success: false, error: 'Failed to get lead' });
+  }
+});
+
+// Trigger full pipeline (KCOJ + GIS + PVA + MC + delinquent tax + legal notices)
+router.post('/pipeline', async (req: Request, res: Response) => {
+  try {
+    const { counties, limit_per_source } = req.body;
+    const result = await triggerFullPipeline({ counties, limit_per_source });
+    res.json({ success: true, data: result });
+  } catch (error) {
+    console.error('Error triggering pipeline:', error);
+    res.status(500).json({ success: false, error: 'Failed to trigger full pipeline' });
   }
 });
 

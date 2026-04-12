@@ -136,3 +136,63 @@ async def list_runs(
     from app.storage.supabase_client import list_source_runs
     runs = await list_source_runs(limit)
     return {"runs": runs}
+
+
+# -----------------------------------------------------------------------
+# Full Pipeline — chains all free KY sources end-to-end
+# -----------------------------------------------------------------------
+
+class PipelineRequest(BaseModel):
+    counties: list[str] = []           # defaults to all 8 target counties
+    limit_per_source: int = 100        # max records per connector
+    sources: list[str] = []            # optional: subset of sources to run
+
+
+@app.post("/pipeline/full")
+async def trigger_full_pipeline(
+    background_tasks: BackgroundTasks,
+    body: PipelineRequest | None = None,
+    authorization: str | None = Header(None),
+):
+    """Run the complete free-source KY pipeline end-to-end.
+
+    Chains: KCOJ → GIS → PVA (all counties) → Master Commissioner →
+            Delinquent Tax → Legal Notices → Cross-reference → Score → Persist
+
+    Runs as a background task — returns immediately with job ID.
+    """
+    _check_auth(authorization)
+
+    params: dict[str, Any] = {}
+    if body:
+        if body.counties:
+            params["counties"] = body.counties
+        params["limit_per_source"] = body.limit_per_source
+
+    background_tasks.add_task(_run_pipeline_task, params)
+
+    return {
+        "status": "accepted",
+        "message": "Full pipeline running in background",
+        "params": params,
+    }
+
+
+async def _run_pipeline_task(params: dict[str, Any]) -> None:
+    """Background task that runs the full pipeline with a fresh browser."""
+    from app.browser import create_browser
+    from app.pipeline.orchestrator import run_full_pipeline
+
+    logger.info("[pipeline] Starting full pipeline run")
+    try:
+        async with create_browser() as browser:
+            leads, summary = await run_full_pipeline(browser, params)
+            logger.info(
+                "[pipeline] Complete: %d leads, %d hot. Summary: %s",
+                summary.get("total_leads", 0),
+                summary.get("hot_leads", 0),
+                {k: v for k, v in summary.get("stages", {}).items()
+                 if isinstance(v, dict) and "count" in v},
+            )
+    except Exception as exc:
+        logger.error("[pipeline] Full pipeline run failed: %s", exc)

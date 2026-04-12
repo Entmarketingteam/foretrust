@@ -82,6 +82,50 @@ export async function triggerScraperRun(
   });
 }
 
+interface PipelineResult {
+  status: string;
+  message: string;
+  params: Record<string, unknown>;
+}
+
+export async function triggerFullPipeline(
+  params: { counties?: string[]; limit_per_source?: number } = {}
+): Promise<PipelineResult> {
+  const url = `${SCRAPER_SERVICE_URL}/pipeline/full`;
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+  if (SCRAPER_SHARED_TOKEN) {
+    headers['Authorization'] = `Bearer ${SCRAPER_SHARED_TOKEN}`;
+  }
+
+  return withRetry(async () => {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), SCRAPER_TIMEOUT_MS);
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(params),
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timeout);
+    }
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      if (response.status < 500) {
+        throw new NonRetryableError(`Pipeline error (${response.status}): ${errorText}`);
+      }
+      throw new Error(`Pipeline error (${response.status}): ${errorText}`);
+    }
+
+    return response.json() as Promise<PipelineResult>;
+  });
+}
+
 export async function listConnectors(): Promise<unknown[]> {
   const url = `${SCRAPER_SERVICE_URL}/connectors`;
   const headers: Record<string, string> = {};
