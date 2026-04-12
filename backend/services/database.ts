@@ -979,6 +979,51 @@ export interface LeadRecord {
   hot_score?: number;
   promoted_deal_id?: string;
   scraped_at: string;
+  slb_thesis?: {
+    intro: string;
+    motivation_factors: string[];
+    years_at_location_estimate: number | null;
+    years_at_location_basis: string;
+    industry_trend_context: string;
+    building_case: string;
+    news_signals: Array<{ headline: string; url: string; relevance: string }>;
+    motivation_score: string;
+    key_conversation_opener: string;
+    researched_at: string;
+  };
+  contact_intel?: {
+    entity_status?: 'active' | 'inactive' | 'dissolved' | 'unknown';
+    entity_formed?: string;
+    registered_agent_name?: string;
+    registered_agent_address?: string;
+    company_website?: string;
+    linkedin_company_url?: string;
+    contacts: Array<{
+      name: string;
+      title?: string;
+      email?: string;
+      email_status?: 'valid' | 'invalid' | 'risky' | 'unknown';
+      email_mx_found?: boolean;
+      phone?: string;
+      linkedin_url?: string;
+      source: string;
+    }>;
+    enriched_at: string;
+    sources_used: string[];
+  };
+  ai_interpretation?: {
+    owner_type: string;
+    owner_operator_likelihood: string;
+    likely_industry: string;
+    business_category: string;
+    years_in_business_estimate: number | null;
+    years_in_business_basis: string;
+    lead_potential: string;
+    opportunity_summary: string;
+    key_signals: string[];
+    contact_strategy: string;
+    interpreted_at: string;
+  };
 }
 
 // Mock leads store
@@ -1075,4 +1120,40 @@ export async function listLeadRuns(limit: number = 20): Promise<object[]> {
 
   if (error) throw error;
   return data || [];
+}
+
+export async function updateLeadInterpretation(leadId: string, interpretation: object): Promise<void> {
+  const client = await getClient();
+  if (!client) return;
+
+  const { error } = await client
+    .from('ft_leads')
+    .update({ ai_interpretation: interpretation })
+    .eq('id', leadId);
+
+  if (error) throw error;
+}
+
+export async function updateLeadSlbThesis(leadId: string, thesis: object): Promise<void> {
+  const client = await getClient();
+  if (!client) return;
+
+  const { error } = await client
+    .from('ft_leads')
+    .update({ slb_thesis: thesis })
+    .eq('id', leadId);
+
+  if (error) throw error;
+}
+
+export async function updateLeadContactIntel(leadId: string, contactIntel: object): Promise<void> {
+  const client = await getClient();
+  if (!client) return;
+
+  const { error } = await client
+    .from('ft_leads')
+    .update({ contact_intel: contactIntel })
+    .eq('id', leadId);
+
+  if (error) throw error;
 }

@@ -3,6 +3,9 @@
 import { Router, Request, Response } from 'express';
 import * as db from '../services/database.js';
 import { triggerScraperRun } from '../services/scraper.js';
+import { interpretLead, generateSlbThesis } from '../services/claude.js';
+import { researchLead } from '../services/search.js';
+import { enrichLeadContact } from '../services/contact.js';
 import { parseNonNegativeInt } from '../utils/params.js';
 
 const router = Router();
@@ -166,6 +169,133 @@ router.post('/:leadId/promote', async (req: Request, res: Response) => {
   } catch (error) {
     console.error('Error promoting lead:', error);
     res.status(500).json({ success: false, error: 'Failed to promote lead' });
+  }
+});
+
+// Research + generate SLB thesis for a lead
+router.post('/:leadId/slb-research', async (req: Request, res: Response) => {
+  try {
+    const { leadId } = req.params;
+    const lead = await db.getLead(leadId);
+    if (!lead) {
+      return res.status(404).json({ success: false, error: 'Lead not found' });
+    }
+
+    // Run web research and SLB thesis generation in sequence
+    // (research results feed directly into thesis prompt)
+    const searchResults = await researchLead({
+      owner_name: lead.owner_name,
+      property_address: lead.property_address,
+      city: lead.city,
+      state: lead.state,
+      jurisdiction: lead.jurisdiction,
+      lead_type: lead.lead_type,
+      building_sqft: lead.building_sqft,
+      year_built: lead.year_built,
+      ai_interpretation: lead.ai_interpretation ? {
+        likely_industry: lead.ai_interpretation.likely_industry,
+        business_category: lead.ai_interpretation.business_category,
+      } : null,
+    });
+
+    const thesis = await generateSlbThesis(lead, searchResults, lead.ai_interpretation || null);
+    await db.updateLeadSlbThesis(leadId, thesis);
+
+    const updated = { ...lead, slb_thesis: thesis };
+    res.json({
+      success: true,
+      data: updated,
+      meta: { search_source: searchResults.source, queries_run: searchResults.queries_run },
+    });
+  } catch (error) {
+    console.error('Error generating SLB thesis:', error);
+    res.status(500).json({ success: false, error: 'Failed to generate SLB thesis' });
+  }
+});
+
+// Interpret a lead with Claude AI (owner type, industry, opportunity summary)
+router.post('/:leadId/interpret', async (req: Request, res: Response) => {
+  try {
+    const { leadId } = req.params;
+    const lead = await db.getLead(leadId);
+    if (!lead) {
+      return res.status(404).json({ success: false, error: 'Lead not found' });
+    }
+
+    const interpretation = await interpretLead(lead);
+    await db.updateLeadInterpretation(leadId, interpretation);
+
+    // Merge interpretation back into the lead object for the response
+    const updated = { ...lead, ai_interpretation: interpretation };
+    res.json({ success: true, data: updated });
+  } catch (error) {
+    console.error('Error interpreting lead:', error);
+    res.status(500).json({ success: false, error: 'Failed to interpret lead' });
+  }
+});
+
+// Enrich contact intelligence for a lead (Apollo + Findymail + SOS web lookup)
+router.post('/:leadId/contact-intel', async (req: Request, res: Response) => {
+  try {
+    const { leadId } = req.params;
+    const lead = await db.getLead(leadId);
+    if (!lead) {
+      return res.status(404).json({ success: false, error: 'Lead not found' });
+    }
+
+    const intel = await enrichLeadContact({
+      owner_name: lead.owner_name,
+      property_address: lead.property_address,
+      city: lead.city,
+      state: lead.state,
+      jurisdiction: lead.jurisdiction,
+    });
+
+    await db.updateLeadContactIntel(leadId, intel);
+
+    const updated = { ...lead, contact_intel: intel };
+    res.json({
+      success: true,
+      data: updated,
+      meta: { sources_used: intel.sources_used, contacts_found: intel.contacts.length },
+    });
+  } catch (error) {
+    console.error('Error enriching contact intel:', error);
+    res.status(500).json({ success: false, error: 'Failed to enrich contact intel' });
+  }
+});
+
+// Bulk interpret leads (up to 20 at a time, skips already-interpreted)
+router.post('/interpret-batch', async (req: Request, res: Response) => {
+  try {
+    const { limit = 20, force = false } = req.body;
+    const leads = await db.listLeads({ limit: Math.min(limit, 20), offset: 0 });
+    const targets = force ? leads : leads.filter(l => !l.ai_interpretation);
+
+    let interpreted = 0;
+    let failed = 0;
+
+    // Process concurrently in batches of 5
+    const batchSize = 5;
+    for (let i = 0; i < targets.length; i += batchSize) {
+      const batch = targets.slice(i, i + batchSize);
+      await Promise.allSettled(
+        batch.map(async (lead) => {
+          try {
+            const interp = await interpretLead(lead);
+            await db.updateLeadInterpretation(lead.id, interp);
+            interpreted++;
+          } catch {
+            failed++;
+          }
+        })
+      );
+    }
+
+    res.json({ success: true, data: { interpreted, failed, total: targets.length } });
+  } catch (error) {
+    console.error('Error in batch interpret:', error);
+    res.status(500).json({ success: false, error: 'Batch interpret failed' });
   }
 });
 
