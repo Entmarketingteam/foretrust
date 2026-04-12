@@ -1827,30 +1827,31 @@
 
         async interpretSingleLead(lead) {
           if (!lead || lead._interpreting) return;
-          lead._interpreting = true;
-          // Trigger Alpine reactivity
-          if (this.selectedLead?.id === lead.id) this.selectedLead = { ...lead };
+          // Force reactivity via splice so list row updates immediately
+          const idx = this.leads.findIndex(l => l.id === lead.id);
+          if (idx !== -1) this.leads.splice(idx, 1, { ...this.leads[idx], _interpreting: true });
+          if (this.selectedLead?.id === lead.id) this.selectedLead = { ...this.selectedLead, _interpreting: true };
+          this.toast('Analyzing lead with Claude... (~25s)', 'info');
           try {
             const res = await fetch(`${API}/leads/${lead.id}/interpret`, { method: 'POST' });
             const json = await res.json();
             if (json.success) {
               const interp = json.data?.ai_interpretation;
-              // Update in-place in leads array
-              const idx = this.leads.findIndex(l => l.id === lead.id);
               if (idx !== -1) {
-                this.leads[idx] = { ...this.leads[idx], ai_interpretation: interp, _interpreting: false };
+                this.leads.splice(idx, 1, { ...this.leads[idx], ai_interpretation: interp, _interpreting: false });
               }
-              // Update selected lead if open
               if (this.selectedLead?.id === lead.id) {
                 this.selectedLead = { ...this.selectedLead, ai_interpretation: interp, _interpreting: false };
               }
               this.toast(`AI analysis complete — ${interp?.lead_potential || ''} lead`, 'success');
             } else {
-              lead._interpreting = false;
+              if (idx !== -1) this.leads.splice(idx, 1, { ...this.leads[idx], _interpreting: false });
+              if (this.selectedLead?.id === lead.id) this.selectedLead = { ...this.selectedLead, _interpreting: false };
               this.toast(json.error || 'Interpretation failed.', 'error');
             }
           } catch (e) {
-            lead._interpreting = false;
+            if (idx !== -1) this.leads.splice(idx, 1, { ...this.leads[idx], _interpreting: false });
+            if (this.selectedLead?.id === lead.id) this.selectedLead = { ...this.selectedLead, _interpreting: false };
             this.toast('Claude analysis request failed.', 'error');
           }
         },
@@ -1882,53 +1883,53 @@
 
         async researchSlb(lead) {
           if (!lead || lead._slbResearching) return;
-          lead._slbResearching = true;
-          if (this.selectedLead?.id === lead.id) this.selectedLead = { ...lead };
-          this.toast('Searching web + generating SLB thesis...', 'info');
+          const slbIdx = this.leads.findIndex(l => l.id === lead.id);
+          if (slbIdx !== -1) this.leads.splice(slbIdx, 1, { ...this.leads[slbIdx], _slbResearching: true });
+          if (this.selectedLead?.id === lead.id) this.selectedLead = { ...this.selectedLead, _slbResearching: true };
+          this.toast('Searching web + generating SLB thesis... (~60s)', 'info');
           try {
             const res = await fetch(`${API}/leads/${lead.id}/slb-research`, { method: 'POST' });
             const json = await res.json();
             if (json.success) {
               const thesis = json.data?.slb_thesis;
-              const idx = this.leads.findIndex(l => l.id === lead.id);
-              if (idx !== -1) this.leads[idx] = { ...this.leads[idx], slb_thesis: thesis, _slbResearching: false };
+              if (slbIdx !== -1) this.leads.splice(slbIdx, 1, { ...this.leads[slbIdx], slb_thesis: thesis, _slbResearching: false });
               if (this.selectedLead?.id === lead.id) this.selectedLead = { ...this.selectedLead, slb_thesis: thesis, _slbResearching: false };
               this.toast(`SLB thesis complete — motivation: ${thesis?.motivation_score || ''}`, 'success');
             } else {
-              lead._slbResearching = false;
-              if (this.selectedLead?.id === lead.id) this.selectedLead = { ...lead, _slbResearching: false };
+              if (slbIdx !== -1) this.leads.splice(slbIdx, 1, { ...this.leads[slbIdx], _slbResearching: false });
+              if (this.selectedLead?.id === lead.id) this.selectedLead = { ...this.selectedLead, _slbResearching: false };
               this.toast(json.error || 'SLB research failed.', 'error');
             }
           } catch (e) {
-            lead._slbResearching = false;
-            if (this.selectedLead?.id === lead.id) this.selectedLead = { ...lead, _slbResearching: false };
+            if (slbIdx !== -1) this.leads.splice(slbIdx, 1, { ...this.leads[slbIdx], _slbResearching: false });
+            if (this.selectedLead?.id === lead.id) this.selectedLead = { ...this.selectedLead, _slbResearching: false };
             this.toast('SLB research request failed.', 'error');
           }
         },
 
         async enrichContact(lead) {
           if (!lead || lead._contactEnriching) return;
-          lead._contactEnriching = true;
-          if (this.selectedLead?.id === lead.id) this.selectedLead = { ...lead };
+          const ciIdx = this.leads.findIndex(l => l.id === lead.id);
+          if (ciIdx !== -1) this.leads.splice(ciIdx, 1, { ...this.leads[ciIdx], _contactEnriching: true });
+          if (this.selectedLead?.id === lead.id) this.selectedLead = { ...this.selectedLead, _contactEnriching: true };
           this.toast('Looking up contact via Apollo + Findymail...', 'info');
           try {
             const res = await fetch(`${API}/leads/${lead.id}/contact-intel`, { method: 'POST' });
             const json = await res.json();
             if (json.success) {
               const intel = json.data?.contact_intel;
-              const idx = this.leads.findIndex(l => l.id === lead.id);
-              if (idx !== -1) this.leads[idx] = { ...this.leads[idx], contact_intel: intel, _contactEnriching: false };
+              if (ciIdx !== -1) this.leads.splice(ciIdx, 1, { ...this.leads[ciIdx], contact_intel: intel, _contactEnriching: false });
               if (this.selectedLead?.id === lead.id) this.selectedLead = { ...this.selectedLead, contact_intel: intel, _contactEnriching: false };
               const found = intel?.contacts?.length || 0;
               this.toast(`Contact enrichment complete — ${found} contact${found !== 1 ? 's' : ''} found`, 'success');
             } else {
-              lead._contactEnriching = false;
-              if (this.selectedLead?.id === lead.id) this.selectedLead = { ...lead, _contactEnriching: false };
+              if (ciIdx !== -1) this.leads.splice(ciIdx, 1, { ...this.leads[ciIdx], _contactEnriching: false });
+              if (this.selectedLead?.id === lead.id) this.selectedLead = { ...this.selectedLead, _contactEnriching: false };
               this.toast(json.error || 'Contact enrichment failed.', 'error');
             }
           } catch (e) {
-            lead._contactEnriching = false;
-            if (this.selectedLead?.id === lead.id) this.selectedLead = { ...lead, _contactEnriching: false };
+            if (ciIdx !== -1) this.leads.splice(ciIdx, 1, { ...this.leads[ciIdx], _contactEnriching: false });
+            if (this.selectedLead?.id === lead.id) this.selectedLead = { ...this.selectedLead, _contactEnriching: false };
             this.toast('Contact enrichment request failed.', 'error');
           }
         },
