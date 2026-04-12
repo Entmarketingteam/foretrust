@@ -268,14 +268,14 @@ router.post('/:dealId/underwrite', async (req: Request, res: Response) => {
     // Call OpenAI for underwriting
     const underwritingResult = await openai.underwriteDeal(inputData);
 
-    // Save scores and financials
+    // Save scores and financials (scores are INTEGER columns — round floats)
     const [scores, financials] = await Promise.all([
       db.upsertScores(dealId, {
-        lci_score: underwritingResult.scores.lciScore,
-        tenant_credit_score: underwritingResult.scores.tenantCreditScore,
-        downside_score: underwritingResult.scores.downsideScore,
-        market_depth_score: underwritingResult.scores.marketDepthScore,
-        overall_score: underwritingResult.scores.overallScore,
+        lci_score: Math.round(underwritingResult.scores.lciScore),
+        tenant_credit_score: Math.round(underwritingResult.scores.tenantCreditScore),
+        downside_score: Math.round(underwritingResult.scores.downsideScore),
+        market_depth_score: Math.round(underwritingResult.scores.marketDepthScore),
+        overall_score: Math.round(underwritingResult.scores.overallScore),
         risk_flags: underwritingResult.scores.riskFlags
       }),
       db.upsertFinancials(dealId, {
@@ -483,11 +483,11 @@ router.post('/:dealId/pipeline', async (req: Request, res: Response) => {
     const underwritingResult = await openai.underwriteDeal(underwritingInput);
     await Promise.all([
       db.upsertScores(dealId, {
-        lci_score: underwritingResult.scores.lciScore,
-        tenant_credit_score: underwritingResult.scores.tenantCreditScore,
-        downside_score: underwritingResult.scores.downsideScore,
-        market_depth_score: underwritingResult.scores.marketDepthScore,
-        overall_score: underwritingResult.scores.overallScore,
+        lci_score: Math.round(underwritingResult.scores.lciScore),
+        tenant_credit_score: Math.round(underwritingResult.scores.tenantCreditScore),
+        downside_score: Math.round(underwritingResult.scores.downsideScore),
+        market_depth_score: Math.round(underwritingResult.scores.marketDepthScore),
+        overall_score: Math.round(underwritingResult.scores.overallScore),
         risk_flags: underwritingResult.scores.riskFlags
       }),
       db.upsertFinancials(dealId, {
