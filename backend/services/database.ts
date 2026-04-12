@@ -260,6 +260,10 @@ async function getClient(): Promise<SupabaseClient | null> {
     };
 
     supabase = createClient(supabaseUrl, supabaseKey, {
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false,
+      },
       global: {
         fetch: customFetch as unknown as typeof globalThis.fetch
       }
