@@ -1,26 +1,8 @@
 FROM python:3.11-slim
 
-# Install system deps for Playwright + Tesseract OCR
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl \
-    gnupg \
-    tesseract-ocr \
-    libnss3 \
-    libatk1.0-0 \
-    libatk-bridge2.0-0 \
-    libcups2 \
-    libxcomposite1 \
-    libxdamage1 \
-    libxrandr2 \
-    libgbm1 \
-    libpango-1.0-0 \
-    libcairo2 \
-    libasound2 \
-    libxshmfence1 \
-    && rm -rf /var/lib/apt/lists/*
-
-# Install Doppler CLI
-RUN curl -sLf --retry 3 --tlsv1.2 --proto "=https" \
+# Install base system deps + Doppler CLI in a single layer
+RUN apt-get update && apt-get install -y --no-install-recommends curl gnupg tesseract-ocr && \
+    curl -sLf --retry 3 --tlsv1.2 --proto "=https" \
     'https://packages.doppler.com/public/cli/gpg.DE2A7741A397C129.key' | \
     gpg --dearmor -o /usr/share/keyrings/doppler-archive-keyring.gpg && \
     echo "deb [signed-by=/usr/share/keyrings/doppler-archive-keyring.gpg] https://packages.doppler.com/public/cli/deb/debian any-version main" \
@@ -34,9 +16,9 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Install Playwright browsers
-RUN playwright install chromium
-RUN playwright install-deps chromium
+# Install Playwright browsers + all system deps in one shot
+# (playwright install --with-deps handles Debian version differences automatically)
+RUN playwright install --with-deps chromium
 
 COPY . .
 
