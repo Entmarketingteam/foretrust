@@ -3,6 +3,7 @@
 import { Router, Request, Response } from 'express';
 import * as db from '../services/database.js';
 import { triggerScraperRun } from '../services/scraper.js';
+import { parseNonNegativeInt } from '../utils/params.js';
 
 const router = Router();
 
@@ -15,9 +16,9 @@ router.get('/', async (req: Request, res: Response) => {
       source_key: source_key as string,
       jurisdiction: jurisdiction as string,
       lead_type: lead_type as string,
-      hot_score_min: hot_score_min ? parseInt(hot_score_min as string) : undefined,
-      limit: limit ? parseInt(limit as string) : 50,
-      offset: offset ? parseInt(offset as string) : 0,
+      hot_score_min: parseNonNegativeInt(hot_score_min as string | undefined, undefined, 100),
+      limit: parseNonNegativeInt(limit as string | undefined, 50, 1000),
+      offset: parseNonNegativeInt(offset as string | undefined, 0),
     });
     res.json({ success: true, data: leads });
   } catch (error) {
@@ -30,7 +31,7 @@ router.get('/', async (req: Request, res: Response) => {
 router.get('/runs', async (req: Request, res: Response) => {
   try {
     const { limit } = req.query;
-    const runs = await db.listLeadRuns(limit ? parseInt(limit as string) : 20);
+    const runs = await db.listLeadRuns(parseNonNegativeInt(limit as string | undefined, 20, 1000) as number);
     res.json({ success: true, data: runs });
   } catch (error) {
     console.error('Error listing runs:', error);
@@ -47,7 +48,7 @@ router.get('/export.csv', async (req: Request, res: Response) => {
       source_key: source_key as string,
       jurisdiction: jurisdiction as string,
       lead_type: lead_type as string,
-      hot_score_min: hot_score_min ? parseInt(hot_score_min as string) : undefined,
+      hot_score_min: parseNonNegativeInt(hot_score_min as string | undefined, undefined, 100),
       limit: 10000,
       offset: 0,
     });

@@ -2,6 +2,7 @@
 import { Router, Request, Response } from 'express';
 import * as db from '../services/database.js';
 import * as openai from '../services/openai.js';
+import { parseNonNegativeInt } from '../utils/params.js';
 
 const router = Router();
 
@@ -13,8 +14,8 @@ router.get('/', async (req: Request, res: Response) => {
       status: status as string,
       tenant: tenant as string,
       market: market as string,
-      limit: limit ? parseInt(limit as string) : undefined,
-      offset: offset ? parseInt(offset as string) : undefined
+      limit: parseNonNegativeInt(limit as string | undefined, undefined, 1000),
+      offset: parseNonNegativeInt(offset as string | undefined)
     });
     res.json({ success: true, data: deals });
   } catch (error) {
@@ -138,20 +139,20 @@ router.post('/:dealId/ingest', async (req: Request, res: Response) => {
         state: parsedData.state || undefined,
         postal_code: parsedData.postalCode || undefined,
         property_type: parsedData.propertyType || undefined,
-        building_sqft: parsedData.buildingSqft || undefined,
-        land_acres: parsedData.landAcres || undefined,
-        year_built: parsedData.yearBuilt || undefined,
-        clear_height_ft: parsedData.clearHeightFt || undefined,
-        dock_doors: parsedData.dockDoors || undefined,
-        drive_in_doors: parsedData.driveInDoors || undefined
+        building_sqft: parsedData.buildingSqft ?? undefined,
+        land_acres: parsedData.landAcres ?? undefined,
+        year_built: parsedData.yearBuilt ?? undefined,
+        clear_height_ft: parsedData.clearHeightFt ?? undefined,
+        dock_doors: parsedData.dockDoors ?? undefined,
+        drive_in_doors: parsedData.driveInDoors ?? undefined
       }),
       db.upsertLeaseTerms(dealId, {
         tenant_name: parsedData.tenantName || undefined,
         lease_type: parsedData.leaseType || undefined,
         lease_start_date: parsedData.leaseStartDate || undefined,
         lease_end_date: parsedData.leaseEndDate || undefined,
-        base_rent_annual: parsedData.baseRentAnnual || undefined,
-        rent_psf: parsedData.rentPsf || undefined,
+        base_rent_annual: parsedData.baseRentAnnual ?? undefined,
+        rent_psf: parsedData.rentPsf ?? undefined,
         rent_escalations: parsedData.rentEscalations,
         options: parsedData.options
       })
@@ -279,20 +280,20 @@ router.post('/:dealId/underwrite', async (req: Request, res: Response) => {
         risk_flags: underwritingResult.scores.riskFlags
       }),
       db.upsertFinancials(dealId, {
-        purchase_price: underwritingResult.financials.purchasePrice,
-        noi_year1: underwritingResult.financials.noiYear1,
-        cap_rate: underwritingResult.financials.capRate,
-        ltv_assumed: underwritingResult.financials.ltvAssumed,
-        interest_rate: underwritingResult.financials.interestRate,
-        io_years: underwritingResult.financials.ioYears,
-        amort_years: underwritingResult.financials.amortYears,
-        exit_cap_rate: underwritingResult.financials.exitCapRate,
-        hold_period_years: underwritingResult.financials.holdPeriodYears,
-        levered_irr: underwritingResult.financials.leveredIrr,
-        unlevered_irr: underwritingResult.financials.unleveredIrr,
-        dscr_min: underwritingResult.financials.dscrMin,
-        cash_on_cash_year1: underwritingResult.financials.cashOnCashYear1,
-        cash_on_cash_avg: underwritingResult.financials.cashOnCashAvg
+        purchase_price: underwritingResult.financials.purchasePrice ?? undefined,
+        noi_year1: underwritingResult.financials.noiYear1 ?? undefined,
+        cap_rate: underwritingResult.financials.capRate ?? undefined,
+        ltv_assumed: underwritingResult.financials.ltvAssumed ?? undefined,
+        interest_rate: underwritingResult.financials.interestRate ?? undefined,
+        io_years: underwritingResult.financials.ioYears ?? undefined,
+        amort_years: underwritingResult.financials.amortYears ?? undefined,
+        exit_cap_rate: underwritingResult.financials.exitCapRate ?? undefined,
+        hold_period_years: underwritingResult.financials.holdPeriodYears ?? undefined,
+        levered_irr: underwritingResult.financials.leveredIrr ?? undefined,
+        unlevered_irr: underwritingResult.financials.unleveredIrr ?? undefined,
+        dscr_min: underwritingResult.financials.dscrMin ?? undefined,
+        cash_on_cash_year1: underwritingResult.financials.cashOnCashYear1 ?? undefined,
+        cash_on_cash_avg: underwritingResult.financials.cashOnCashAvg ?? undefined
       })
     ]);
 
@@ -439,20 +440,20 @@ router.post('/:dealId/pipeline', async (req: Request, res: Response) => {
         state: parsedData.state || undefined,
         postal_code: parsedData.postalCode || undefined,
         property_type: parsedData.propertyType || undefined,
-        building_sqft: parsedData.buildingSqft || undefined,
-        land_acres: parsedData.landAcres || undefined,
-        year_built: parsedData.yearBuilt || undefined,
-        clear_height_ft: parsedData.clearHeightFt || undefined,
-        dock_doors: parsedData.dockDoors || undefined,
-        drive_in_doors: parsedData.driveInDoors || undefined
+        building_sqft: parsedData.buildingSqft ?? undefined,
+        land_acres: parsedData.landAcres ?? undefined,
+        year_built: parsedData.yearBuilt ?? undefined,
+        clear_height_ft: parsedData.clearHeightFt ?? undefined,
+        dock_doors: parsedData.dockDoors ?? undefined,
+        drive_in_doors: parsedData.driveInDoors ?? undefined
       }),
       db.upsertLeaseTerms(dealId, {
         tenant_name: parsedData.tenantName || undefined,
         lease_type: parsedData.leaseType || undefined,
         lease_start_date: parsedData.leaseStartDate || undefined,
         lease_end_date: parsedData.leaseEndDate || undefined,
-        base_rent_annual: parsedData.baseRentAnnual || undefined,
-        rent_psf: parsedData.rentPsf || undefined,
+        base_rent_annual: parsedData.baseRentAnnual ?? undefined,
+        rent_psf: parsedData.rentPsf ?? undefined,
         rent_escalations: parsedData.rentEscalations,
         options: parsedData.options
       })
@@ -491,20 +492,20 @@ router.post('/:dealId/pipeline', async (req: Request, res: Response) => {
         risk_flags: underwritingResult.scores.riskFlags
       }),
       db.upsertFinancials(dealId, {
-        purchase_price: underwritingResult.financials.purchasePrice,
-        noi_year1: underwritingResult.financials.noiYear1,
-        cap_rate: underwritingResult.financials.capRate,
-        ltv_assumed: underwritingResult.financials.ltvAssumed,
-        interest_rate: underwritingResult.financials.interestRate,
-        io_years: underwritingResult.financials.ioYears,
-        amort_years: underwritingResult.financials.amortYears,
-        exit_cap_rate: underwritingResult.financials.exitCapRate,
-        hold_period_years: underwritingResult.financials.holdPeriodYears,
-        levered_irr: underwritingResult.financials.leveredIrr,
-        unlevered_irr: underwritingResult.financials.unleveredIrr,
-        dscr_min: underwritingResult.financials.dscrMin,
-        cash_on_cash_year1: underwritingResult.financials.cashOnCashYear1,
-        cash_on_cash_avg: underwritingResult.financials.cashOnCashAvg
+        purchase_price: underwritingResult.financials.purchasePrice ?? undefined,
+        noi_year1: underwritingResult.financials.noiYear1 ?? undefined,
+        cap_rate: underwritingResult.financials.capRate ?? undefined,
+        ltv_assumed: underwritingResult.financials.ltvAssumed ?? undefined,
+        interest_rate: underwritingResult.financials.interestRate ?? undefined,
+        io_years: underwritingResult.financials.ioYears ?? undefined,
+        amort_years: underwritingResult.financials.amortYears ?? undefined,
+        exit_cap_rate: underwritingResult.financials.exitCapRate ?? undefined,
+        hold_period_years: underwritingResult.financials.holdPeriodYears ?? undefined,
+        levered_irr: underwritingResult.financials.leveredIrr ?? undefined,
+        unlevered_irr: underwritingResult.financials.unleveredIrr ?? undefined,
+        dscr_min: underwritingResult.financials.dscrMin ?? undefined,
+        cash_on_cash_year1: underwritingResult.financials.cashOnCashYear1 ?? undefined,
+        cash_on_cash_avg: underwritingResult.financials.cashOnCashAvg ?? undefined
       })
     ]);
     results.underwriting = underwritingResult;

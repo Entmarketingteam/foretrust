@@ -9,6 +9,7 @@ Endpoints:
 
 from __future__ import annotations
 
+import hmac
 import logging
 from contextlib import asynccontextmanager
 from typing import Any
@@ -50,7 +51,7 @@ def _check_auth(authorization: str | None) -> None:
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(401, "Missing Bearer token")
     token = authorization[7:]
-    if token != settings.scraper_shared_token:
+    if not hmac.compare_digest(token, settings.scraper_shared_token):
         raise HTTPException(403, "Invalid token")
 
 

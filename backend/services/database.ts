@@ -7,6 +7,188 @@ import { HttpsProxyAgent } from 'https-proxy-agent';
 let supabase: SupabaseClient | null = null;
 let useMockData = false;
 
+// ─── Mock seed data ───────────────────────────────────────────────────────────
+// These arrays seed the in-memory store when Supabase is not configured (demo
+// mode). Edit here to change the demo dataset; do not reference these constants
+// anywhere outside of mockStore's initializer below.
+
+const _seedDeals: Deal[] = [
+  {
+    id: 'mock-deal-001',
+    organization_id: '00000000-0000-0000-0000-000000000001',
+    name: 'Walgreens - Austin TX',
+    status: 'memo_generated',
+    source_type: 'pdf',
+    created_at: '2025-11-20T10:00:00Z',
+    updated_at: '2025-11-20T12:00:00Z'
+  },
+  {
+    id: 'mock-deal-002',
+    organization_id: '00000000-0000-0000-0000-000000000001',
+    name: 'Dollar General - Nashville TN',
+    status: 'underwritten',
+    source_type: 'url',
+    source_url: 'https://example.com/listing/123',
+    created_at: '2025-11-18T08:00:00Z',
+    updated_at: '2025-11-19T15:00:00Z'
+  },
+  {
+    id: 'mock-deal-003',
+    organization_id: '00000000-0000-0000-0000-000000000001',
+    name: 'CVS Pharmacy - Phoenix AZ',
+    status: 'enriched',
+    source_type: 'manual',
+    created_at: '2025-11-15T14:00:00Z',
+    updated_at: '2025-11-16T09:00:00Z'
+  }
+];
+
+const _seedPropertyAttributes: DealPropertyAttributes[] = [
+  {
+    id: 'mock-prop-001',
+    deal_id: 'mock-deal-001',
+    address_line1: '1234 Main Street',
+    city: 'Austin',
+    state: 'TX',
+    postal_code: '78701',
+    property_type: 'Retail - NNN',
+    building_sqft: 14500,
+    land_acres: 1.2,
+    year_built: 2018
+  },
+  {
+    id: 'mock-prop-002',
+    deal_id: 'mock-deal-002',
+    address_line1: '5678 Commerce Blvd',
+    city: 'Nashville',
+    state: 'TN',
+    postal_code: '37203',
+    property_type: 'Retail - NNN',
+    building_sqft: 9100,
+    land_acres: 0.9,
+    year_built: 2020
+  },
+  {
+    id: 'mock-prop-003',
+    deal_id: 'mock-deal-003',
+    address_line1: '910 Desert Road',
+    city: 'Phoenix',
+    state: 'AZ',
+    postal_code: '85001',
+    property_type: 'Retail - NNN',
+    building_sqft: 12800,
+    land_acres: 1.5,
+    year_built: 2015
+  }
+];
+
+const _seedLeaseTerms: DealLeaseTerms[] = [
+  {
+    id: 'mock-lease-001',
+    deal_id: 'mock-deal-001',
+    tenant_name: 'Walgreens Co.',
+    lease_type: 'Absolute NNN',
+    lease_start_date: '2018-06-01',
+    lease_end_date: '2038-05-31',
+    base_rent_annual: 450000,
+    rent_psf: 31.03
+  },
+  {
+    id: 'mock-lease-002',
+    deal_id: 'mock-deal-002',
+    tenant_name: 'Dollar General Corporation',
+    lease_type: 'NNN',
+    lease_start_date: '2020-03-01',
+    lease_end_date: '2035-02-28',
+    base_rent_annual: 125000,
+    rent_psf: 13.74
+  },
+  {
+    id: 'mock-lease-003',
+    deal_id: 'mock-deal-003',
+    tenant_name: 'CVS Health Corporation',
+    lease_type: 'NNN',
+    lease_start_date: '2015-09-01',
+    lease_end_date: '2030-08-31',
+    base_rent_annual: 380000,
+    rent_psf: 29.69
+  }
+];
+
+const _seedScores: DealScores[] = [
+  {
+    id: 'mock-score-001',
+    deal_id: 'mock-deal-001',
+    overall_score: 87,
+    lci_score: 92,
+    tenant_credit_score: 95,
+    downside_score: 78,
+    market_depth_score: 83,
+    risk_flags: ['Long lease term positive', 'Strong tenant credit'],
+    scored_at: '2025-11-20T11:00:00Z'
+  },
+  {
+    id: 'mock-score-002',
+    deal_id: 'mock-deal-002',
+    overall_score: 72,
+    lci_score: 68,
+    tenant_credit_score: 82,
+    downside_score: 65,
+    market_depth_score: 73,
+    risk_flags: ['Moderate lease term', 'Secondary market'],
+    scored_at: '2025-11-19T14:00:00Z'
+  }
+];
+
+const _seedFinancials: DealFinancials[] = [
+  {
+    id: 'mock-fin-001',
+    deal_id: 'mock-deal-001',
+    purchase_price: 7200000,
+    noi_year1: 450000,
+    cap_rate: 0.0625,
+    ltv_assumed: 0.65,
+    interest_rate: 0.055,
+    io_years: 2,
+    amort_years: 25,
+    exit_cap_rate: 0.07,
+    hold_period_years: 7,
+    levered_irr: 0.142,
+    unlevered_irr: 0.078,
+    dscr_min: 1.45,
+    cash_on_cash_year1: 0.082
+  },
+  {
+    id: 'mock-fin-002',
+    deal_id: 'mock-deal-002',
+    purchase_price: 1850000,
+    noi_year1: 125000,
+    cap_rate: 0.0676,
+    ltv_assumed: 0.70,
+    interest_rate: 0.058,
+    io_years: 0,
+    amort_years: 25,
+    exit_cap_rate: 0.075,
+    hold_period_years: 5,
+    levered_irr: 0.118,
+    unlevered_irr: 0.072,
+    dscr_min: 1.28,
+    cash_on_cash_year1: 0.065
+  }
+];
+
+const _seedMemos: DealMemo[] = [
+  {
+    id: 'mock-memo-001',
+    deal_id: 'mock-deal-001',
+    version: 1,
+    content_markdown: `# Investment Committee Memo\n\n## Executive Summary\nWalgreens NNN property in Austin, TX presents a compelling investment opportunity with strong tenant credit and favorable lease terms.\n\n## Recommendation: APPROVE\n\n### Key Highlights\n- Investment Grade Tenant (S&P: BBB)\n- 20-year absolute NNN lease\n- 6.25% cap rate in growth market\n- Projected 14.2% levered IRR\n\n### Risk Factors\n- Retail pharmacy sector headwinds\n- E-commerce competition\n\n### Conclusion\nStrong credit tenant with long-term lease in growing Texas market. Recommend proceeding with acquisition.`,
+    recommendation: 'approve',
+    generated_at: '2025-11-20T12:00:00Z'
+  }
+];
+// ─────────────────────────────────────────────────────────────────────────────
+
 // Mock data store (in-memory for demo)
 const mockStore: {
   deals: Deal[];
@@ -17,177 +199,13 @@ const mockStore: {
   enrichment: DealEnrichment[];
   memos: DealMemo[];
 } = {
-  deals: [
-    {
-      id: 'mock-deal-001',
-      organization_id: '00000000-0000-0000-0000-000000000001',
-      name: 'Walgreens - Austin TX',
-      status: 'memo_generated',
-      source_type: 'pdf',
-      created_at: '2025-11-20T10:00:00Z',
-      updated_at: '2025-11-20T12:00:00Z'
-    },
-    {
-      id: 'mock-deal-002',
-      organization_id: '00000000-0000-0000-0000-000000000001',
-      name: 'Dollar General - Nashville TN',
-      status: 'underwritten',
-      source_type: 'url',
-      source_url: 'https://example.com/listing/123',
-      created_at: '2025-11-18T08:00:00Z',
-      updated_at: '2025-11-19T15:00:00Z'
-    },
-    {
-      id: 'mock-deal-003',
-      organization_id: '00000000-0000-0000-0000-000000000001',
-      name: 'CVS Pharmacy - Phoenix AZ',
-      status: 'enriched',
-      source_type: 'manual',
-      created_at: '2025-11-15T14:00:00Z',
-      updated_at: '2025-11-16T09:00:00Z'
-    }
-  ],
-  propertyAttributes: [
-    {
-      id: 'mock-prop-001',
-      deal_id: 'mock-deal-001',
-      address_line1: '1234 Main Street',
-      city: 'Austin',
-      state: 'TX',
-      postal_code: '78701',
-      property_type: 'Retail - NNN',
-      building_sqft: 14500,
-      land_acres: 1.2,
-      year_built: 2018
-    },
-    {
-      id: 'mock-prop-002',
-      deal_id: 'mock-deal-002',
-      address_line1: '5678 Commerce Blvd',
-      city: 'Nashville',
-      state: 'TN',
-      postal_code: '37203',
-      property_type: 'Retail - NNN',
-      building_sqft: 9100,
-      land_acres: 0.9,
-      year_built: 2020
-    },
-    {
-      id: 'mock-prop-003',
-      deal_id: 'mock-deal-003',
-      address_line1: '910 Desert Road',
-      city: 'Phoenix',
-      state: 'AZ',
-      postal_code: '85001',
-      property_type: 'Retail - NNN',
-      building_sqft: 12800,
-      land_acres: 1.5,
-      year_built: 2015
-    }
-  ],
-  leaseTerms: [
-    {
-      id: 'mock-lease-001',
-      deal_id: 'mock-deal-001',
-      tenant_name: 'Walgreens Co.',
-      lease_type: 'Absolute NNN',
-      lease_start_date: '2018-06-01',
-      lease_end_date: '2038-05-31',
-      base_rent_annual: 450000,
-      rent_psf: 31.03
-    },
-    {
-      id: 'mock-lease-002',
-      deal_id: 'mock-deal-002',
-      tenant_name: 'Dollar General Corporation',
-      lease_type: 'NNN',
-      lease_start_date: '2020-03-01',
-      lease_end_date: '2035-02-28',
-      base_rent_annual: 125000,
-      rent_psf: 13.74
-    },
-    {
-      id: 'mock-lease-003',
-      deal_id: 'mock-deal-003',
-      tenant_name: 'CVS Health Corporation',
-      lease_type: 'NNN',
-      lease_start_date: '2015-09-01',
-      lease_end_date: '2030-08-31',
-      base_rent_annual: 380000,
-      rent_psf: 29.69
-    }
-  ],
-  scores: [
-    {
-      id: 'mock-score-001',
-      deal_id: 'mock-deal-001',
-      overall_score: 87,
-      lci_score: 92,
-      tenant_credit_score: 95,
-      downside_score: 78,
-      market_depth_score: 83,
-      risk_flags: ['Long lease term positive', 'Strong tenant credit'],
-      scored_at: '2025-11-20T11:00:00Z'
-    },
-    {
-      id: 'mock-score-002',
-      deal_id: 'mock-deal-002',
-      overall_score: 72,
-      lci_score: 68,
-      tenant_credit_score: 82,
-      downside_score: 65,
-      market_depth_score: 73,
-      risk_flags: ['Moderate lease term', 'Secondary market'],
-      scored_at: '2025-11-19T14:00:00Z'
-    }
-  ],
-  financials: [
-    {
-      id: 'mock-fin-001',
-      deal_id: 'mock-deal-001',
-      purchase_price: 7200000,
-      noi_year1: 450000,
-      cap_rate: 0.0625,
-      ltv_assumed: 0.65,
-      interest_rate: 0.055,
-      io_years: 2,
-      amort_years: 25,
-      exit_cap_rate: 0.07,
-      hold_period_years: 7,
-      levered_irr: 0.142,
-      unlevered_irr: 0.078,
-      dscr_min: 1.45,
-      cash_on_cash_year1: 0.082
-    },
-    {
-      id: 'mock-fin-002',
-      deal_id: 'mock-deal-002',
-      purchase_price: 1850000,
-      noi_year1: 125000,
-      cap_rate: 0.0676,
-      ltv_assumed: 0.70,
-      interest_rate: 0.058,
-      io_years: 0,
-      amort_years: 25,
-      exit_cap_rate: 0.075,
-      hold_period_years: 5,
-      levered_irr: 0.118,
-      unlevered_irr: 0.072,
-      dscr_min: 1.28,
-      cash_on_cash_year1: 0.065
-    }
-  ],
+  deals: _seedDeals,
+  propertyAttributes: _seedPropertyAttributes,
+  leaseTerms: _seedLeaseTerms,
+  scores: _seedScores,
+  financials: _seedFinancials,
   enrichment: [],
-  memos: [
-    {
-      id: 'mock-memo-001',
-      deal_id: 'mock-deal-001',
-      version: 1,
-      content_markdown: `# Investment Committee Memo\n\n## Executive Summary\nWalgreens NNN property in Austin, TX presents a compelling investment opportunity with strong tenant credit and favorable lease terms.\n\n## Recommendation: APPROVE\n\n### Key Highlights\n- Investment Grade Tenant (S&P: BBB)\n- 20-year absolute NNN lease\n- 6.25% cap rate in growth market\n- Projected 14.2% levered IRR\n\n### Risk Factors\n- Retail pharmacy sector headwinds\n- E-commerce competition\n\n### Conclusion\nStrong credit tenant with long-term lease in growing Texas market. Recommend proceeding with acquisition.`,
-      recommendation: 'approve',
-      generated_at: '2025-11-20T12:00:00Z'
-    }
-  ]
+  memos: _seedMemos
 };
 
 function generateUUID(): string {
