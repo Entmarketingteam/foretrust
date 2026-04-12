@@ -1,0 +1,1407 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Foretrust — Real Estate Intelligence</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <style>
+    [x-cloak] { display: none !important; }
+
+    .sidebar-link { @apply flex items-center gap-3 px-4 py-3 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-all cursor-pointer text-sm font-medium; }
+    .sidebar-link.active { @apply text-white bg-indigo-600; }
+
+    .score-bar { transition: width 0.6s ease; }
+
+    .badge { @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold; }
+
+    .prose-memo { @apply text-slate-700 leading-relaxed; }
+    .prose-memo h1 { @apply text-xl font-bold text-slate-900 mt-6 mb-3; }
+    .prose-memo h2 { @apply text-lg font-bold text-slate-900 mt-5 mb-2; }
+    .prose-memo h3 { @apply text-base font-semibold text-slate-800 mt-4 mb-2; }
+    .prose-memo p { @apply mb-3; }
+    .prose-memo ul { @apply list-disc list-inside mb-3 space-y-1; }
+    .prose-memo ol { @apply list-decimal list-inside mb-3 space-y-1; }
+    .prose-memo strong { @apply font-semibold text-slate-900; }
+    .prose-memo table { @apply w-full border-collapse mb-4; }
+    .prose-memo th { @apply bg-slate-100 text-left px-3 py-2 text-xs font-semibold text-slate-600 uppercase border border-slate-200; }
+    .prose-memo td { @apply px-3 py-2 text-sm border border-slate-200; }
+    .prose-memo tr:nth-child(even) td { @apply bg-slate-50; }
+    .prose-memo blockquote { @apply border-l-4 border-indigo-400 pl-4 italic text-slate-600 my-3; }
+    .prose-memo code { @apply bg-slate-100 px-1 py-0.5 rounded text-xs font-mono; }
+    .prose-memo hr { @apply border-slate-200 my-4; }
+
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+
+    .modal-backdrop { backdrop-filter: blur(4px); }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .spin { animation: spin 1s linear infinite; }
+
+    @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+    .slide-in { animation: slideIn 0.3s ease-out; }
+
+    @keyframes fadeUp { from { transform: translateY(8px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+    .fade-up { animation: fadeUp 0.2s ease-out; }
+
+    .tooltip { position: relative; }
+    .tooltip:hover::after { content: attr(data-tip); position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%); background: #1e293b; color: #f8fafc; font-size: 11px; padding: 4px 8px; border-radius: 4px; white-space: nowrap; z-index: 50; margin-bottom: 4px; }
+  </style>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            sidebar: '#1a1f2e',
+            'sidebar-hover': '#242b3d',
+          }
+        }
+      }
+    }
+  </script>
+</head>
+<body class="bg-slate-50 font-sans antialiased" x-data="app()" x-init="init()">
+
+  <!-- Toast Notifications -->
+  <div class="fixed top-4 right-4 z-[100] space-y-2 w-80" x-cloak>
+    <template x-for="toast in toasts" :key="toast.id">
+      <div class="fade-up flex items-start gap-3 p-4 rounded-xl shadow-xl border"
+           :class="{
+             'bg-white border-green-200': toast.type === 'success',
+             'bg-white border-red-200': toast.type === 'error',
+             'bg-white border-blue-200': toast.type === 'info'
+           }">
+        <div class="shrink-0 mt-0.5">
+          <svg x-show="toast.type === 'success'" class="w-4 h-4 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+          <svg x-show="toast.type === 'error'" class="w-4 h-4 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+          <svg x-show="toast.type === 'info'" class="w-4 h-4 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+        </div>
+        <p class="text-sm text-slate-700 leading-snug" x-text="toast.message"></p>
+      </div>
+    </template>
+  </div>
+
+  <!-- Layout -->
+  <div class="flex h-screen overflow-hidden">
+
+    <!-- Sidebar -->
+    <aside class="w-60 shrink-0 flex flex-col" style="background: #1a1f2e;">
+      <!-- Logo -->
+      <div class="px-6 py-5 border-b border-white/10">
+        <div class="flex items-center gap-2.5">
+          <div class="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center">
+            <svg class="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/>
+            </svg>
+          </div>
+          <div>
+            <div class="text-white font-bold text-sm tracking-tight">Foretrust</div>
+            <div class="text-slate-500 text-xs">Intelligence Platform</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Nav -->
+      <nav class="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
+        <p class="px-4 pb-1 text-xs font-semibold text-slate-600 uppercase tracking-wider">Lead Acquisition</p>
+        <a @click="currentPage = 'leads'; loadLeads()" :class="currentPage === 'leads' ? 'active' : ''" class="sidebar-link">
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"/></svg>
+          Leads
+        </a>
+        <a @click="currentPage = 'runs'; loadRuns()" :class="currentPage === 'runs' ? 'active' : ''" class="sidebar-link">
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+          Scraper Runs
+        </a>
+
+        <p class="px-4 pb-1 pt-4 text-xs font-semibold text-slate-600 uppercase tracking-wider">Deal Pipeline</p>
+        <a @click="currentPage = 'deals'; loadDeals()" :class="currentPage === 'deals' ? 'active' : ''" class="sidebar-link">
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/></svg>
+          Deals
+        </a>
+      </nav>
+
+      <!-- Stats -->
+      <div class="px-4 py-4 border-t border-white/10 space-y-2" x-show="stats">
+        <div class="flex justify-between text-xs">
+          <span class="text-slate-500">Total Leads</span>
+          <span class="text-white font-semibold" x-text="stats ? stats.total : '—'"></span>
+        </div>
+        <div class="flex justify-between text-xs">
+          <span class="text-slate-500">Active Deals</span>
+          <span class="text-white font-semibold" x-text="stats ? stats.deals : '—'"></span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="flex-1 overflow-y-auto">
+
+      <!-- LEADS PAGE -->
+      <div x-show="currentPage === 'leads'" x-cloak>
+        <!-- Header -->
+        <div class="bg-white border-b border-slate-200 px-8 py-5 sticky top-0 z-20">
+          <div class="flex items-center justify-between">
+            <div>
+              <h1 class="text-xl font-bold text-slate-900">Distress Leads</h1>
+              <p class="text-sm text-slate-500 mt-0.5">Probate, foreclosure, tax lien, and vacancy leads across KY counties</p>
+            </div>
+            <div class="flex items-center gap-3">
+              <a href="/api/foretrust/leads/export.csv" class="flex items-center gap-2 px-4 py-2 rounded-lg border border-slate-200 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors">
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+                Export CSV
+              </a>
+              <button @click="showScrapeModal = true" class="flex items-center gap-2 px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 transition-colors">
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"/><path stroke-linecap="round" stroke-linejoin="round" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                Run Scraper
+              </button>
+            </div>
+          </div>
+
+          <!-- Summary Bar -->
+          <div class="mt-4 flex gap-4 flex-wrap" x-show="leadSummary">
+            <div class="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
+              <div class="w-2 h-2 rounded-full bg-slate-400"></div>
+              <span class="text-xs font-medium text-slate-600">Total</span>
+              <span class="text-sm font-bold text-slate-900" x-text="leadSummary?.total || 0"></span>
+            </div>
+            <template x-for="[type, count] in Object.entries(leadSummary?.byType || {})" :key="type">
+              <div class="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
+                <div class="w-2 h-2 rounded-full" :class="leadTypeColor(type, 'dot')"></div>
+                <span class="text-xs font-medium text-slate-600 capitalize" x-text="type.replace(/_/g, ' ')"></span>
+                <span class="text-sm font-bold text-slate-900" x-text="count"></span>
+              </div>
+            </template>
+            <div class="flex items-center gap-2 bg-indigo-50 border border-indigo-200 rounded-lg px-3 py-2">
+              <svg class="w-3 h-3 text-indigo-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M5 10l7-7m0 0l7 7m-7-7v18"/></svg>
+              <span class="text-xs font-medium text-indigo-600">Promoted</span>
+              <span class="text-sm font-bold text-indigo-900" x-text="leadSummary?.promoted || 0"></span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Filters -->
+        <div class="bg-white border-b border-slate-200 px-8 py-3">
+          <div class="flex items-center gap-4 flex-wrap">
+            <div class="flex items-center gap-2">
+              <label class="text-xs font-semibold text-slate-500 uppercase tracking-wide">Type</label>
+              <select x-model="leadFilters.lead_type" @change="leadFilters.offset = 0; loadLeads()"
+                      class="text-sm border border-slate-200 rounded-lg px-3 py-1.5 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                <option value="">All Types</option>
+                <option value="probate">Probate</option>
+                <option value="foreclosure">Foreclosure</option>
+                <option value="pre_foreclosure">Pre-Foreclosure</option>
+                <option value="tax_lien">Tax Lien</option>
+                <option value="vacancy">Vacancy</option>
+              </select>
+            </div>
+
+            <div class="flex items-center gap-2">
+              <label class="text-xs font-semibold text-slate-500 uppercase tracking-wide">County</label>
+              <select x-model="leadFilters.jurisdiction" @change="leadFilters.offset = 0; loadLeads()"
+                      class="text-sm border border-slate-200 rounded-lg px-3 py-1.5 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                <option value="">All Counties</option>
+                <template x-for="j in jurisdictions" :key="j">
+                  <option :value="j" x-text="j"></option>
+                </template>
+              </select>
+            </div>
+
+            <div class="flex items-center gap-3">
+              <label class="text-xs font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap">Min Hot Score</label>
+              <input type="range" min="0" max="100" step="5" x-model="leadFilters.hot_score_min"
+                     @change="leadFilters.offset = 0; loadLeads()"
+                     class="w-28 accent-indigo-600">
+              <span class="text-sm font-bold text-indigo-600 w-8" x-text="leadFilters.hot_score_min"></span>
+            </div>
+
+            <button @click="leadFilters = {lead_type: '', jurisdiction: '', hot_score_min: 0, offset: 0}; loadLeads()"
+                    class="text-xs text-slate-400 hover:text-slate-600 transition-colors ml-auto">
+              Clear Filters
+            </button>
+          </div>
+        </div>
+
+        <!-- Table -->
+        <div class="px-8 py-6">
+          <!-- Loading -->
+          <div x-show="leadsLoading" class="flex flex-col items-center justify-center py-20 gap-3">
+            <svg class="w-8 h-8 text-indigo-400 spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+            <p class="text-slate-500 text-sm">Loading leads...</p>
+          </div>
+
+          <!-- Empty -->
+          <div x-show="!leadsLoading && leads.length === 0" class="text-center py-20">
+            <div class="w-16 h-16 rounded-2xl bg-slate-100 flex items-center justify-center mx-auto mb-4">
+              <svg class="w-8 h-8 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"/></svg>
+            </div>
+            <h3 class="text-slate-700 font-semibold text-base mb-1">No leads yet</h3>
+            <p class="text-slate-400 text-sm mb-6">Run a scraper to import distress real estate leads.</p>
+            <button @click="showScrapeModal = true" class="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 transition-colors">
+              <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"/><path stroke-linecap="round" stroke-linejoin="round" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+              Run Scraper
+            </button>
+          </div>
+
+          <!-- Table -->
+          <div x-show="!leadsLoading && leads.length > 0" class="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
+            <table class="w-full text-sm">
+              <thead>
+                <tr class="bg-slate-50 border-b border-slate-200">
+                  <th class="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Hot Score</th>
+                  <th class="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Type</th>
+                  <th class="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Owner</th>
+                  <th class="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Property Address</th>
+                  <th class="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">County</th>
+                  <th class="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Source</th>
+                  <th class="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Scraped</th>
+                  <th class="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Actions</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-slate-100">
+                <template x-for="lead in leads" :key="lead.id">
+                  <tr class="hover:bg-slate-50 transition-colors group">
+                    <td class="px-4 py-3">
+                      <span class="badge text-white font-bold"
+                            :class="hotScoreBadge(lead.hot_score)"
+                            x-text="lead.hot_score != null ? lead.hot_score : '—'"></span>
+                    </td>
+                    <td class="px-4 py-3">
+                      <span class="badge" :class="leadTypeBadge(lead.lead_type)" x-text="(lead.lead_type || '—').replace(/_/g, ' ')"></span>
+                    </td>
+                    <td class="px-4 py-3 text-slate-900 font-medium max-w-[140px] truncate" :title="lead.owner_name" x-text="lead.owner_name || '—'"></td>
+                    <td class="px-4 py-3 text-slate-600 max-w-[200px] truncate" :title="lead.property_address" x-text="lead.property_address || '—'"></td>
+                    <td class="px-4 py-3 text-slate-600" x-text="lead.jurisdiction || '—'"></td>
+                    <td class="px-4 py-3 text-slate-500 text-xs font-mono" x-text="lead.source_key || '—'"></td>
+                    <td class="px-4 py-3 text-slate-500 text-xs" x-text="formatDate(lead.scraped_at)"></td>
+                    <td class="px-4 py-3">
+                      <div class="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button @click="openLeadDetail(lead)"
+                                class="px-2.5 py-1 rounded-md text-xs font-medium bg-slate-100 text-slate-700 hover:bg-slate-200 transition-colors">
+                          View
+                        </button>
+                        <button @click="promoteLead(lead)"
+                                :disabled="lead.deal_id"
+                                class="px-2.5 py-1 rounded-md text-xs font-medium transition-colors"
+                                :class="lead.deal_id ? 'bg-green-50 text-green-600 cursor-default' : 'bg-indigo-50 text-indigo-700 hover:bg-indigo-100'"
+                                x-text="lead.deal_id ? 'Promoted' : 'Promote'">
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+
+            <!-- Pagination -->
+            <div class="px-4 py-3 border-t border-slate-100 flex items-center justify-between text-sm">
+              <span class="text-slate-500">
+                Showing <span class="font-medium text-slate-700" x-text="leadFilters.offset + 1"></span>–<span class="font-medium text-slate-700" x-text="Math.min(leadFilters.offset + 50, leadSummary?.total || 0)"></span>
+                of <span class="font-medium text-slate-700" x-text="leadSummary?.total || 0"></span>
+              </span>
+              <div class="flex gap-2">
+                <button @click="leadFilters.offset = Math.max(0, leadFilters.offset - 50); loadLeads()"
+                        :disabled="leadFilters.offset === 0"
+                        class="px-3 py-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors text-xs font-medium">
+                  Previous
+                </button>
+                <button @click="leadFilters.offset += 50; loadLeads()"
+                        :disabled="leadFilters.offset + 50 >= (leadSummary?.total || 0)"
+                        class="px-3 py-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors text-xs font-medium">
+                  Next
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+
+      <!-- DEALS PAGE -->
+      <div x-show="currentPage === 'deals'" x-cloak>
+        <div class="bg-white border-b border-slate-200 px-8 py-5 sticky top-0 z-20">
+          <div class="flex items-center justify-between">
+            <div>
+              <h1 class="text-xl font-bold text-slate-900">Deals</h1>
+              <p class="text-sm text-slate-500 mt-0.5">AI-analyzed commercial real estate investment opportunities</p>
+            </div>
+            <button @click="showNewDealModal = true"
+                    class="flex items-center gap-2 px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 transition-colors">
+              <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/></svg>
+              New Deal
+            </button>
+          </div>
+        </div>
+
+        <div class="px-8 py-6">
+          <!-- Loading -->
+          <div x-show="dealsLoading" class="flex flex-col items-center justify-center py-20 gap-3">
+            <svg class="w-8 h-8 text-indigo-400 spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+            <p class="text-slate-500 text-sm">Loading deals...</p>
+          </div>
+
+          <!-- Empty -->
+          <div x-show="!dealsLoading && deals.length === 0" class="text-center py-20">
+            <div class="w-16 h-16 rounded-2xl bg-slate-100 flex items-center justify-center mx-auto mb-4">
+              <svg class="w-8 h-8 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/></svg>
+            </div>
+            <h3 class="text-slate-700 font-semibold text-base mb-1">No deals yet</h3>
+            <p class="text-slate-400 text-sm mb-6">Create a deal manually or promote a lead to get started.</p>
+            <button @click="showNewDealModal = true" class="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 transition-colors">
+              <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/></svg>
+              New Deal
+            </button>
+          </div>
+
+          <!-- Deals Grid -->
+          <div x-show="!dealsLoading && deals.length > 0" class="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
+            <table class="w-full text-sm">
+              <thead>
+                <tr class="bg-slate-50 border-b border-slate-200">
+                  <th class="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Deal Name</th>
+                  <th class="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Status</th>
+                  <th class="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Source</th>
+                  <th class="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Created</th>
+                  <th class="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Actions</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-slate-100">
+                <template x-for="deal in deals" :key="deal.id">
+                  <tr class="hover:bg-slate-50 transition-colors group cursor-pointer" @click="openDealDetail(deal.id)">
+                    <td class="px-4 py-3">
+                      <div class="font-medium text-slate-900" x-text="deal.name"></div>
+                      <div class="text-xs text-slate-400 font-mono mt-0.5" x-text="deal.id?.slice(0, 8) + '...'"></div>
+                    </td>
+                    <td class="px-4 py-3">
+                      <span class="badge" :class="dealStatusBadge(deal.status)" x-text="(deal.status || 'draft').replace(/_/g, ' ')"></span>
+                    </td>
+                    <td class="px-4 py-3 text-slate-500 capitalize" x-text="deal.source_type || '—'"></td>
+                    <td class="px-4 py-3 text-slate-500 text-xs" x-text="formatDate(deal.created_at)"></td>
+                    <td class="px-4 py-3" @click.stop>
+                      <div class="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button @click.stop="openDealDetail(deal.id)"
+                                class="px-2.5 py-1 rounded-md text-xs font-medium bg-slate-100 text-slate-700 hover:bg-slate-200 transition-colors">
+                          View
+                        </button>
+                        <button @click.stop="runPipeline(deal.id)"
+                                class="px-2.5 py-1 rounded-md text-xs font-medium bg-indigo-50 text-indigo-700 hover:bg-indigo-100 transition-colors">
+                          Pipeline
+                        </button>
+                        <button @click.stop="deleteDeal(deal.id)"
+                                class="px-2.5 py-1 rounded-md text-xs font-medium bg-red-50 text-red-600 hover:bg-red-100 transition-colors">
+                          Delete
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+
+      <!-- SCRAPER RUNS PAGE -->
+      <div x-show="currentPage === 'runs'" x-cloak>
+        <div class="bg-white border-b border-slate-200 px-8 py-5 sticky top-0 z-20">
+          <div class="flex items-center justify-between">
+            <div>
+              <h1 class="text-xl font-bold text-slate-900">Scraper Runs</h1>
+              <p class="text-sm text-slate-500 mt-0.5">Audit log of all data collection jobs across KY county sources</p>
+            </div>
+            <button @click="showScrapeModal = true"
+                    class="flex items-center gap-2 px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 transition-colors">
+              <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"/><path stroke-linecap="round" stroke-linejoin="round" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+              Trigger Run
+            </button>
+          </div>
+        </div>
+
+        <div class="px-8 py-6">
+          <!-- Loading -->
+          <div x-show="runsLoading" class="flex flex-col items-center justify-center py-20 gap-3">
+            <svg class="w-8 h-8 text-indigo-400 spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+            <p class="text-slate-500 text-sm">Loading run history...</p>
+          </div>
+
+          <!-- Empty -->
+          <div x-show="!runsLoading && runs.length === 0" class="text-center py-20">
+            <div class="w-16 h-16 rounded-2xl bg-slate-100 flex items-center justify-center mx-auto mb-4">
+              <svg class="w-8 h-8 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+            </div>
+            <h3 class="text-slate-700 font-semibold text-base mb-1">No runs yet</h3>
+            <p class="text-slate-400 text-sm mb-6">Trigger a scraper run to see job history.</p>
+            <button @click="showScrapeModal = true" class="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 transition-colors">
+              Trigger First Run
+            </button>
+          </div>
+
+          <!-- Table -->
+          <div x-show="!runsLoading && runs.length > 0" class="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
+            <table class="w-full text-sm">
+              <thead>
+                <tr class="bg-slate-50 border-b border-slate-200">
+                  <th class="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Source</th>
+                  <th class="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Status</th>
+                  <th class="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Found</th>
+                  <th class="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">New</th>
+                  <th class="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Started</th>
+                  <th class="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Duration</th>
+                  <th class="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Error</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-slate-100">
+                <template x-for="run in runs" :key="run.id">
+                  <tr class="hover:bg-slate-50 transition-colors">
+                    <td class="px-4 py-3">
+                      <span class="font-mono text-xs bg-slate-100 text-slate-700 px-2 py-1 rounded" x-text="run.source_key"></span>
+                    </td>
+                    <td class="px-4 py-3">
+                      <span class="badge"
+                            :class="run.status === 'ok' || run.status === 'success' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'"
+                            x-text="run.status || '—'"></span>
+                    </td>
+                    <td class="px-4 py-3 text-slate-700 font-medium" x-text="run.records_found ?? run.total_found ?? '—'"></td>
+                    <td class="px-4 py-3 text-green-700 font-medium" x-text="run.records_new ?? run.new_leads ?? '—'"></td>
+                    <td class="px-4 py-3 text-slate-500 text-xs" x-text="formatDate(run.started_at || run.created_at)"></td>
+                    <td class="px-4 py-3 text-slate-500 text-xs" x-text="formatDuration(run.duration_ms || run.duration_seconds)"></td>
+                    <td class="px-4 py-3 text-red-500 text-xs max-w-[200px] truncate" :title="run.error_message" x-text="run.error_message || ''"></td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+    </main>
+  </div>
+
+
+  <!-- ========== MODALS ========== -->
+
+  <!-- Scrape Modal -->
+  <div x-show="showScrapeModal" x-cloak class="fixed inset-0 z-50 flex items-center justify-center modal-backdrop bg-black/40"
+       @click.self="showScrapeModal = false">
+    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 fade-up" @click.stop>
+      <div class="px-6 py-5 border-b border-slate-100 flex items-center justify-between">
+        <div>
+          <h2 class="text-lg font-bold text-slate-900">Run Scraper</h2>
+          <p class="text-sm text-slate-500 mt-0.5">Select a data source to import leads from</p>
+        </div>
+        <button @click="showScrapeModal = false" class="text-slate-400 hover:text-slate-600 transition-colors">
+          <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+      </div>
+
+      <div class="px-6 py-5 space-y-4">
+        <div>
+          <label class="block text-sm font-semibold text-slate-700 mb-2">Data Source</label>
+          <select x-model="scrapeForm.source_key"
+                  class="w-full text-sm border border-slate-200 rounded-xl px-4 py-3 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+            <option value="">Select a connector...</option>
+            <option value="kcoj_courtnet">KY Court of Justice (Probate/Foreclosure)</option>
+            <option value="fayette_pva">Fayette County — Property Records</option>
+            <option value="scott_pva">Scott County — Property Records</option>
+            <option value="oldham_pva">Oldham County — Property Records</option>
+            <option value="ky_state_gis">KY Statewide GIS</option>
+            <option value="legal_notices">Newspaper Legal Notices</option>
+            <option value="zillow_public">Zillow Public Listings</option>
+          </select>
+        </div>
+
+        <!-- Connector Description -->
+        <div x-show="scrapeForm.source_key" class="bg-indigo-50 border border-indigo-100 rounded-xl px-4 py-3">
+          <p class="text-xs text-indigo-700 font-medium" x-text="connectorDescription(scrapeForm.source_key)"></p>
+        </div>
+      </div>
+
+      <div class="px-6 pb-6 flex gap-3">
+        <button @click="showScrapeModal = false"
+                class="flex-1 px-4 py-3 rounded-xl border border-slate-200 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors">
+          Cancel
+        </button>
+        <button @click="triggerScrape()"
+                :disabled="!scrapeForm.source_key || scrapeRunning"
+                class="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
+          <svg x-show="scrapeRunning" class="w-4 h-4 spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+          <span x-text="scrapeRunning ? 'Running...' : 'Start Scrape'"></span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- New Deal Modal -->
+  <div x-show="showNewDealModal" x-cloak class="fixed inset-0 z-50 flex items-center justify-center modal-backdrop bg-black/40"
+       @click.self="showNewDealModal = false">
+    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 fade-up" @click.stop>
+      <div class="px-6 py-5 border-b border-slate-100 flex items-center justify-between">
+        <div>
+          <h2 class="text-lg font-bold text-slate-900">New Deal</h2>
+          <p class="text-sm text-slate-500 mt-0.5">Create a new deal for AI analysis</p>
+        </div>
+        <button @click="showNewDealModal = false" class="text-slate-400 hover:text-slate-600 transition-colors">
+          <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+      </div>
+
+      <div class="px-6 py-5 space-y-4">
+        <div>
+          <label class="block text-sm font-semibold text-slate-700 mb-2">Deal Name <span class="text-red-400">*</span></label>
+          <input type="text" x-model="newDealForm.name" placeholder="e.g. 123 Main St — Lexington NNN Retail"
+                 class="w-full text-sm border border-slate-200 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-indigo-500 placeholder-slate-400">
+        </div>
+        <div>
+          <label class="block text-sm font-semibold text-slate-700 mb-2">Source Type <span class="text-red-400">*</span></label>
+          <div class="grid grid-cols-3 gap-2">
+            <button x-for="type in ['manual', 'url', 'pdf']" :key="type"
+                    @click="newDealForm.sourceType = type"
+                    :class="newDealForm.sourceType === type ? 'border-indigo-500 bg-indigo-50 text-indigo-700' : 'border-slate-200 text-slate-600 hover:border-slate-300'"
+                    class="px-3 py-2.5 rounded-xl border text-sm font-medium capitalize transition-all">
+              <span x-text="type"></span>
+            </button>
+          </div>
+        </div>
+        <div x-show="newDealForm.sourceType === 'url'">
+          <label class="block text-sm font-semibold text-slate-700 mb-2">Source URL</label>
+          <input type="url" x-model="newDealForm.sourceUrl" placeholder="https://loopnet.com/listing/..."
+                 class="w-full text-sm border border-slate-200 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-indigo-500 placeholder-slate-400">
+        </div>
+      </div>
+
+      <div class="px-6 pb-6 flex gap-3">
+        <button @click="showNewDealModal = false"
+                class="flex-1 px-4 py-3 rounded-xl border border-slate-200 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors">
+          Cancel
+        </button>
+        <button @click="createDeal()"
+                :disabled="!newDealForm.name || !newDealForm.sourceType || dealCreating"
+                class="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
+          <svg x-show="dealCreating" class="w-4 h-4 spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+          <span x-text="dealCreating ? 'Creating...' : 'Create Deal'"></span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- Lead Detail Modal -->
+  <div x-show="showLeadDetail" x-cloak class="fixed inset-0 z-50 flex items-center justify-center modal-backdrop bg-black/40"
+       @click.self="showLeadDetail = false">
+    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl mx-4 fade-up max-h-[90vh] overflow-y-auto" @click.stop>
+      <div class="px-6 py-5 border-b border-slate-100 flex items-center justify-between sticky top-0 bg-white rounded-t-2xl z-10">
+        <div>
+          <h2 class="text-lg font-bold text-slate-900" x-text="selectedLead?.owner_name || 'Lead Detail'"></h2>
+          <p class="text-sm text-slate-500 mt-0.5" x-text="selectedLead?.property_address || ''"></p>
+        </div>
+        <button @click="showLeadDetail = false" class="text-slate-400 hover:text-slate-600 transition-colors">
+          <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+      </div>
+
+      <div class="px-6 py-5" x-show="selectedLead">
+        <!-- Score + Type -->
+        <div class="flex items-center gap-3 mb-6">
+          <span class="badge text-white text-sm font-bold px-3 py-1" :class="hotScoreBadge(selectedLead?.hot_score)"
+                x-text="'Hot Score: ' + (selectedLead?.hot_score ?? '—')"></span>
+          <span class="badge text-sm" :class="leadTypeBadge(selectedLead?.lead_type)"
+                x-text="(selectedLead?.lead_type || '—').replace(/_/g, ' ')"></span>
+          <span x-show="selectedLead?.deal_id" class="badge bg-green-100 text-green-700 text-sm">Promoted to Deal</span>
+        </div>
+
+        <!-- Details Grid -->
+        <div class="grid grid-cols-2 gap-4">
+          <div class="bg-slate-50 rounded-xl p-4">
+            <p class="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">Property Address</p>
+            <p class="text-sm text-slate-900 font-medium" x-text="selectedLead?.property_address || '—'"></p>
+          </div>
+          <div class="bg-slate-50 rounded-xl p-4">
+            <p class="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">Mailing Address</p>
+            <p class="text-sm text-slate-900" x-text="selectedLead?.mailing_address || '—'"></p>
+          </div>
+          <div class="bg-slate-50 rounded-xl p-4">
+            <p class="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">City / State / ZIP</p>
+            <p class="text-sm text-slate-900" x-text="[selectedLead?.city, selectedLead?.state, selectedLead?.postal_code].filter(Boolean).join(', ') || '—'"></p>
+          </div>
+          <div class="bg-slate-50 rounded-xl p-4">
+            <p class="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">Jurisdiction</p>
+            <p class="text-sm text-slate-900" x-text="selectedLead?.jurisdiction || '—'"></p>
+          </div>
+          <div class="bg-slate-50 rounded-xl p-4">
+            <p class="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">Parcel Number</p>
+            <p class="text-sm text-slate-900 font-mono" x-text="selectedLead?.parcel_number || '—'"></p>
+          </div>
+          <div class="bg-slate-50 rounded-xl p-4">
+            <p class="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">Est. Value</p>
+            <p class="text-sm text-slate-900 font-semibold" x-text="selectedLead?.estimated_value ? '$' + Number(selectedLead.estimated_value).toLocaleString() : '—'"></p>
+          </div>
+          <div class="bg-slate-50 rounded-xl p-4">
+            <p class="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">Building SQFT</p>
+            <p class="text-sm text-slate-900" x-text="selectedLead?.building_sqft ? Number(selectedLead.building_sqft).toLocaleString() + ' sqft' : '—'"></p>
+          </div>
+          <div class="bg-slate-50 rounded-xl p-4">
+            <p class="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">Year Built</p>
+            <p class="text-sm text-slate-900" x-text="selectedLead?.year_built || '—'"></p>
+          </div>
+          <div class="bg-slate-50 rounded-xl p-4">
+            <p class="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">Case ID</p>
+            <p class="text-sm text-slate-900 font-mono" x-text="selectedLead?.case_id || '—'"></p>
+          </div>
+          <div class="bg-slate-50 rounded-xl p-4">
+            <p class="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">Case Filed</p>
+            <p class="text-sm text-slate-900" x-text="formatDate(selectedLead?.case_filed_date)"></p>
+          </div>
+          <div class="bg-slate-50 rounded-xl p-4">
+            <p class="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">Source</p>
+            <p class="text-sm text-slate-700 font-mono" x-text="selectedLead?.source_key || '—'"></p>
+          </div>
+          <div class="bg-slate-50 rounded-xl p-4">
+            <p class="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">Scraped At</p>
+            <p class="text-sm text-slate-900" x-text="formatDate(selectedLead?.scraped_at)"></p>
+          </div>
+        </div>
+
+        <!-- Promote CTA -->
+        <div class="mt-6 flex gap-3" x-show="!selectedLead?.deal_id">
+          <button @click="promoteLead(selectedLead); showLeadDetail = false"
+                  class="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 transition-colors">
+            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M5 10l7-7m0 0l7 7m-7-7v18"/></svg>
+            Promote to Deal
+          </button>
+        </div>
+        <div class="mt-6" x-show="selectedLead?.deal_id">
+          <div class="bg-green-50 border border-green-200 rounded-xl px-4 py-3 text-sm text-green-700 font-medium text-center">
+            Already promoted to a deal
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- Deal Detail Slide-over -->
+  <div x-show="showDealDetail" x-cloak class="fixed inset-0 z-50 flex items-end justify-end modal-backdrop bg-black/40"
+       @click.self="showDealDetail = false">
+    <div class="bg-white shadow-2xl h-full w-full max-w-3xl slide-in overflow-y-auto" @click.stop>
+
+      <!-- Header -->
+      <div class="px-6 py-5 border-b border-slate-100 flex items-center justify-between sticky top-0 bg-white z-10">
+        <div class="flex items-center gap-3 min-w-0">
+          <button @click="showDealDetail = false" class="text-slate-400 hover:text-slate-600 transition-colors shrink-0">
+            <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+          </button>
+          <div class="min-w-0">
+            <h2 class="text-lg font-bold text-slate-900 truncate" x-text="selectedDeal?.deal?.name || 'Deal Detail'"></h2>
+            <span class="badge mt-0.5" :class="dealStatusBadge(selectedDeal?.deal?.status)"
+                  x-text="(selectedDeal?.deal?.status || 'draft').replace(/_/g, ' ')"></span>
+          </div>
+        </div>
+        <button @click="runPipeline(selectedDeal?.deal?.id)"
+                :disabled="pipelineRunning"
+                class="flex items-center gap-2 px-4 py-2 rounded-xl bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 disabled:opacity-50 transition-colors shrink-0 ml-4">
+          <svg x-show="pipelineRunning" class="w-4 h-4 spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+          <svg x-show="!pipelineRunning" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+          <span x-text="pipelineRunning ? 'Running...' : 'Run Pipeline'"></span>
+        </button>
+      </div>
+
+      <!-- Loading -->
+      <div x-show="dealDetailLoading" class="flex flex-col items-center justify-center py-20 gap-3">
+        <svg class="w-8 h-8 text-indigo-400 spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+        <p class="text-slate-500 text-sm">Loading deal data...</p>
+      </div>
+
+      <!-- Content -->
+      <div x-show="!dealDetailLoading && selectedDeal" class="px-6 py-5">
+
+        <!-- Tabs -->
+        <div class="flex border-b border-slate-200 mb-6 gap-1">
+          <template x-for="tab in ['Overview', 'Scores', 'Financials', 'IC Memo']" :key="tab">
+            <button @click="dealTab = tab"
+                    :class="dealTab === tab ? 'border-indigo-600 text-indigo-600 font-semibold' : 'border-transparent text-slate-500 hover:text-slate-700'"
+                    class="px-4 py-3 text-sm border-b-2 -mb-px transition-colors whitespace-nowrap">
+              <span x-text="tab"></span>
+            </button>
+          </template>
+        </div>
+
+        <!-- OVERVIEW TAB -->
+        <div x-show="dealTab === 'Overview'">
+          <div class="grid grid-cols-2 gap-4">
+
+            <div class="col-span-2">
+              <h3 class="text-sm font-bold text-slate-700 uppercase tracking-wide mb-3">Property</h3>
+            </div>
+
+            <template x-if="selectedDeal?.property">
+              <template x-if="true">
+                <div class="bg-slate-50 rounded-xl p-4">
+                  <p class="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">Address</p>
+                  <p class="text-sm text-slate-900 font-medium"
+                     x-text="[selectedDeal?.property?.address_line1, selectedDeal?.property?.city, selectedDeal?.property?.state, selectedDeal?.property?.postal_code].filter(Boolean).join(', ') || '—'"></p>
+                </div>
+              </template>
+            </template>
+
+            <div class="bg-slate-50 rounded-xl p-4" x-show="selectedDeal?.property">
+              <p class="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">Address</p>
+              <p class="text-sm text-slate-900 font-medium"
+                 x-text="[selectedDeal?.property?.address_line1, selectedDeal?.property?.city, selectedDeal?.property?.state, selectedDeal?.property?.postal_code].filter(Boolean).join(', ') || '—'"></p>
+            </div>
+
+            <div class="bg-slate-50 rounded-xl p-4" x-show="selectedDeal?.property">
+              <p class="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">Property Type</p>
+              <p class="text-sm text-slate-900 font-medium capitalize" x-text="selectedDeal?.property?.property_type || '—'"></p>
+            </div>
+
+            <div class="bg-slate-50 rounded-xl p-4" x-show="selectedDeal?.property">
+              <p class="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">Building Size</p>
+              <p class="text-sm text-slate-900 font-medium" x-text="selectedDeal?.property?.building_sqft ? Number(selectedDeal.property.building_sqft).toLocaleString() + ' sqft' : '—'"></p>
+            </div>
+
+            <div class="bg-slate-50 rounded-xl p-4" x-show="selectedDeal?.property">
+              <p class="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">Year Built</p>
+              <p class="text-sm text-slate-900 font-medium" x-text="selectedDeal?.property?.year_built || '—'"></p>
+            </div>
+
+            <div class="bg-slate-50 rounded-xl p-4" x-show="selectedDeal?.property?.clear_height_ft">
+              <p class="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">Clear Height</p>
+              <p class="text-sm text-slate-900 font-medium" x-text="selectedDeal?.property?.clear_height_ft ? selectedDeal.property.clear_height_ft + ' ft' : '—'"></p>
+            </div>
+
+            <div class="bg-slate-50 rounded-xl p-4" x-show="selectedDeal?.property?.dock_doors">
+              <p class="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">Dock Doors</p>
+              <p class="text-sm text-slate-900 font-medium" x-text="selectedDeal?.property?.dock_doors || '—'"></p>
+            </div>
+
+            <!-- No property data -->
+            <div x-show="!selectedDeal?.property" class="col-span-2 bg-slate-50 rounded-xl p-6 text-center">
+              <p class="text-slate-400 text-sm">No property data yet. Run the pipeline to ingest and enrich this deal.</p>
+            </div>
+
+            <!-- Lease Section -->
+            <div class="col-span-2 mt-4">
+              <h3 class="text-sm font-bold text-slate-700 uppercase tracking-wide mb-3">Lease Terms</h3>
+            </div>
+
+            <div class="bg-slate-50 rounded-xl p-4" x-show="selectedDeal?.lease">
+              <p class="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">Tenant</p>
+              <p class="text-sm text-slate-900 font-medium" x-text="selectedDeal?.lease?.tenant_name || '—'"></p>
+            </div>
+
+            <div class="bg-slate-50 rounded-xl p-4" x-show="selectedDeal?.lease">
+              <p class="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">Lease Type</p>
+              <p class="text-sm text-slate-900 font-medium uppercase" x-text="selectedDeal?.lease?.lease_type || '—'"></p>
+            </div>
+
+            <div class="bg-slate-50 rounded-xl p-4" x-show="selectedDeal?.lease">
+              <p class="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">Lease Dates</p>
+              <p class="text-sm text-slate-900" x-text="[formatDate(selectedDeal?.lease?.lease_start_date), formatDate(selectedDeal?.lease?.lease_end_date)].filter(Boolean).join(' — ') || '—'"></p>
+            </div>
+
+            <div class="bg-slate-50 rounded-xl p-4" x-show="selectedDeal?.lease">
+              <p class="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">Base Rent (Annual)</p>
+              <p class="text-sm text-slate-900 font-semibold" x-text="selectedDeal?.lease?.base_rent_annual ? '$' + Number(selectedDeal.lease.base_rent_annual).toLocaleString() : '—'"></p>
+            </div>
+
+            <div class="bg-slate-50 rounded-xl p-4" x-show="selectedDeal?.lease">
+              <p class="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">Rent PSF</p>
+              <p class="text-sm text-slate-900 font-semibold" x-text="selectedDeal?.lease?.rent_psf ? '$' + selectedDeal.lease.rent_psf + '/sqft' : '—'"></p>
+            </div>
+
+            <div x-show="!selectedDeal?.lease" class="col-span-2 bg-slate-50 rounded-xl p-6 text-center">
+              <p class="text-slate-400 text-sm">No lease data yet.</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- SCORES TAB -->
+        <div x-show="dealTab === 'Scores'">
+          <div x-show="!selectedDeal?.scores" class="text-center py-12">
+            <div class="w-14 h-14 rounded-2xl bg-slate-100 flex items-center justify-center mx-auto mb-4">
+              <svg class="w-7 h-7 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
+            </div>
+            <p class="text-slate-500 text-sm font-medium">Not underwritten yet</p>
+            <p class="text-slate-400 text-xs mt-1">Run the AI pipeline to generate scores.</p>
+          </div>
+
+          <div x-show="selectedDeal?.scores" class="space-y-4">
+            <!-- Score Cards -->
+            <div class="grid grid-cols-1 gap-3">
+              <template x-for="[label, key] in [['Location & Credit Index (LCI)', 'lci_score'], ['Tenant Credit', 'tenant_credit_score'], ['Downside Protection', 'downside_score'], ['Market Depth', 'market_depth_score'], ['Overall Score', 'overall_score']]" :key="key">
+                <div class="bg-white border border-slate-200 rounded-xl p-4">
+                  <div class="flex items-center justify-between mb-2">
+                    <span class="text-sm font-semibold text-slate-700" x-text="label"></span>
+                    <span class="text-lg font-bold"
+                          :class="scoreColor(selectedDeal?.scores?.[key])"
+                          x-text="selectedDeal?.scores?.[key] != null ? selectedDeal.scores[key] : '—'"></span>
+                  </div>
+                  <div class="w-full bg-slate-100 rounded-full h-2">
+                    <div class="score-bar h-2 rounded-full"
+                         :class="scoreBarColor(selectedDeal?.scores?.[key])"
+                         :style="'width: ' + (selectedDeal?.scores?.[key] || 0) + '%'"></div>
+                  </div>
+                </div>
+              </template>
+            </div>
+
+            <!-- Risk Flags -->
+            <div x-show="selectedDeal?.scores?.risk_flags?.length > 0" class="mt-4">
+              <h3 class="text-sm font-bold text-slate-700 mb-3">Risk Flags</h3>
+              <div class="space-y-2">
+                <template x-for="flag in (selectedDeal?.scores?.risk_flags || [])" :key="flag">
+                  <div class="flex items-start gap-2 bg-red-50 border border-red-100 rounded-xl px-4 py-2.5">
+                    <svg class="w-4 h-4 text-red-500 mt-0.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.834-1.962-.834-2.732 0L3.082 16.5c-.77.833.192 2.5 1.732 2.5z"/></svg>
+                    <span class="text-sm text-red-700" x-text="flag"></span>
+                  </div>
+                </template>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- FINANCIALS TAB -->
+        <div x-show="dealTab === 'Financials'">
+          <div x-show="!selectedDeal?.financials" class="text-center py-12">
+            <div class="w-14 h-14 rounded-2xl bg-slate-100 flex items-center justify-center mx-auto mb-4">
+              <svg class="w-7 h-7 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+            </div>
+            <p class="text-slate-500 text-sm font-medium">No financial model yet</p>
+            <p class="text-slate-400 text-xs mt-1">Run the AI pipeline to generate underwriting.</p>
+          </div>
+
+          <div x-show="selectedDeal?.financials" class="grid grid-cols-2 gap-4">
+            <template x-for="[label, key, fmt] in [
+              ['Purchase Price', 'purchase_price', 'currency'],
+              ['NOI Year 1', 'noi_year1', 'currency'],
+              ['Cap Rate', 'cap_rate', 'percent'],
+              ['LTV Assumed', 'ltv_assumed', 'percent'],
+              ['Levered IRR', 'levered_irr', 'percent'],
+              ['Unlevered IRR', 'unlevered_irr', 'percent'],
+              ['Min DSCR', 'dscr_min', 'decimal'],
+              ['Cash-on-Cash Yr 1', 'cash_on_cash_year1', 'percent'],
+              ['Cash-on-Cash Avg', 'cash_on_cash_avg', 'percent'],
+              ['Interest Rate', 'interest_rate', 'percent'],
+              ['Exit Cap Rate', 'exit_cap_rate', 'percent'],
+              ['Hold Period', 'hold_period_years', 'years']
+            ]" :key="key">
+              <div class="bg-slate-50 rounded-xl p-4">
+                <p class="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1" x-text="label"></p>
+                <p class="text-xl font-bold text-slate-900" x-text="formatFinancial(selectedDeal?.financials?.[key], fmt)"></p>
+              </div>
+            </template>
+          </div>
+        </div>
+
+        <!-- IC MEMO TAB -->
+        <div x-show="dealTab === 'IC Memo'">
+          <div x-show="!selectedDeal?.memo" class="text-center py-12">
+            <div class="w-14 h-14 rounded-2xl bg-slate-100 flex items-center justify-center mx-auto mb-4">
+              <svg class="w-7 h-7 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+            </div>
+            <p class="text-slate-500 text-sm font-medium">No IC memo generated yet</p>
+            <p class="text-slate-400 text-xs mt-1">Run the full pipeline to generate the investment committee memo.</p>
+          </div>
+
+          <div x-show="selectedDeal?.memo">
+            <!-- Recommendation Banner -->
+            <div class="mb-6 flex items-center gap-3 p-4 rounded-xl border"
+                 :class="{
+                   'bg-green-50 border-green-200': selectedDeal?.memo?.recommendation === 'approve',
+                   'bg-yellow-50 border-yellow-200': selectedDeal?.memo?.recommendation === 'approve_with_conditions',
+                   'bg-red-50 border-red-200': selectedDeal?.memo?.recommendation === 'decline',
+                   'bg-slate-50 border-slate-200': !selectedDeal?.memo?.recommendation
+                 }">
+              <div class="shrink-0">
+                <svg x-show="selectedDeal?.memo?.recommendation === 'approve'" class="w-6 h-6 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                <svg x-show="selectedDeal?.memo?.recommendation === 'approve_with_conditions'" class="w-6 h-6 text-yellow-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.834-1.962-.834-2.732 0L3.082 16.5c-.77.833.192 2.5 1.732 2.5z"/></svg>
+                <svg x-show="selectedDeal?.memo?.recommendation === 'decline'" class="w-6 h-6 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+              </div>
+              <div>
+                <p class="text-sm font-bold"
+                   :class="{
+                     'text-green-800': selectedDeal?.memo?.recommendation === 'approve',
+                     'text-yellow-800': selectedDeal?.memo?.recommendation === 'approve_with_conditions',
+                     'text-red-800': selectedDeal?.memo?.recommendation === 'decline',
+                     'text-slate-700': !selectedDeal?.memo?.recommendation
+                   }"
+                   x-text="recommendationLabel(selectedDeal?.memo?.recommendation)"></p>
+                <p class="text-xs mt-0.5"
+                   :class="{
+                     'text-green-600': selectedDeal?.memo?.recommendation === 'approve',
+                     'text-yellow-600': selectedDeal?.memo?.recommendation === 'approve_with_conditions',
+                     'text-red-600': selectedDeal?.memo?.recommendation === 'decline',
+                     'text-slate-500': !selectedDeal?.memo?.recommendation
+                   }"
+                   x-text="formatDate(selectedDeal?.memo?.created_at)"></p>
+              </div>
+            </div>
+
+            <!-- Memo Content -->
+            <div class="prose-memo bg-white border border-slate-200 rounded-xl p-6"
+                 x-html="selectedDeal?.memo?.content_markdown ? marked.parse(selectedDeal.memo.content_markdown) : ''"></div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+
+  <!-- ========== JAVASCRIPT ========== -->
+  <script>
+    const API = '/api/foretrust';
+
+    function app() {
+      return {
+        // Navigation
+        currentPage: 'leads',
+
+        // Leads
+        leads: [],
+        leadsLoading: false,
+        leadSummary: null,
+        jurisdictions: [],
+        leadFilters: { lead_type: '', jurisdiction: '', hot_score_min: 0, offset: 0 },
+
+        // Deals
+        deals: [],
+        dealsLoading: false,
+
+        // Runs
+        runs: [],
+        runsLoading: false,
+
+        // Sidebar stats
+        stats: null,
+
+        // Modals
+        showScrapeModal: false,
+        showNewDealModal: false,
+        showLeadDetail: false,
+        showDealDetail: false,
+
+        // Scrape form
+        scrapeForm: { source_key: '' },
+        scrapeRunning: false,
+
+        // New deal form
+        newDealForm: { name: '', sourceType: 'manual', sourceUrl: '' },
+        dealCreating: false,
+
+        // Selected items
+        selectedLead: null,
+        selectedDeal: null,
+        dealDetailLoading: false,
+        dealTab: 'Overview',
+        pipelineRunning: false,
+
+        // Toast
+        toasts: [],
+
+        async init() {
+          await this.loadLeads();
+          this.loadSidebarStats();
+        },
+
+        // ===== API CALLS =====
+
+        async loadLeads() {
+          this.leadsLoading = true;
+          try {
+            const params = new URLSearchParams();
+            if (this.leadFilters.lead_type) params.set('lead_type', this.leadFilters.lead_type);
+            if (this.leadFilters.jurisdiction) params.set('jurisdiction', this.leadFilters.jurisdiction);
+            if (this.leadFilters.hot_score_min > 0) params.set('hot_score_min', this.leadFilters.hot_score_min);
+            params.set('limit', 50);
+            params.set('offset', this.leadFilters.offset);
+
+            const res = await fetch(`${API}/leads?${params}`);
+            const json = await res.json();
+            if (json.success) {
+              this.leads = json.data || [];
+
+              // Build summary
+              const all = await fetch(`${API}/leads?limit=10000&offset=0`);
+              const allJson = await all.json();
+              const allLeads = allJson.data || [];
+
+              const byType = {};
+              const types = ['probate', 'foreclosure', 'pre_foreclosure', 'tax_lien', 'vacancy'];
+              types.forEach(t => {
+                const c = allLeads.filter(l => l.lead_type === t).length;
+                if (c > 0) byType[t] = c;
+              });
+
+              const promoted = allLeads.filter(l => l.deal_id).length;
+              this.leadSummary = { total: allLeads.length, byType, promoted };
+
+              // Unique jurisdictions
+              const jurs = [...new Set(allLeads.map(l => l.jurisdiction).filter(Boolean))].sort();
+              this.jurisdictions = jurs;
+            }
+          } catch (e) {
+            this.toast('Failed to load leads. Make sure the API is reachable.', 'error');
+          } finally {
+            this.leadsLoading = false;
+          }
+        },
+
+        async loadDeals() {
+          this.dealsLoading = true;
+          try {
+            const res = await fetch(`${API}/deals`);
+            const json = await res.json();
+            if (json.success) {
+              this.deals = json.data || [];
+            }
+          } catch (e) {
+            this.toast('Failed to load deals.', 'error');
+          } finally {
+            this.dealsLoading = false;
+          }
+        },
+
+        async loadRuns() {
+          this.runsLoading = true;
+          try {
+            const res = await fetch(`${API}/leads/runs`);
+            const json = await res.json();
+            if (json.success) {
+              this.runs = json.data || [];
+            }
+          } catch (e) {
+            this.toast('Failed to load scraper runs.', 'error');
+          } finally {
+            this.runsLoading = false;
+          }
+        },
+
+        async loadSidebarStats() {
+          try {
+            const [leadsRes, dealsRes] = await Promise.all([
+              fetch(`${API}/leads?limit=1`),
+              fetch(`${API}/deals`)
+            ]);
+            const leadsJson = await leadsRes.json();
+            const dealsJson = await dealsRes.json();
+
+            // Use summary for total
+            const allLeads = await fetch(`${API}/leads?limit=10000`);
+            const allJson = await allLeads.json();
+
+            this.stats = {
+              total: (allJson.data || []).length,
+              deals: (dealsJson.data || []).length
+            };
+          } catch (e) {}
+        },
+
+        async triggerScrape() {
+          if (!this.scrapeForm.source_key) return;
+          this.scrapeRunning = true;
+          try {
+            const res = await fetch(`${API}/leads/scrape`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ source_key: this.scrapeForm.source_key })
+            });
+            const json = await res.json();
+            if (json.success) {
+              const data = json.data || {};
+              const newCount = data.new_leads || data.records_new || 0;
+              const total = data.total_found || data.records_found || 0;
+              this.toast(`Scrape complete — ${newCount} new leads imported (${total} total found)`, 'success');
+              this.showScrapeModal = false;
+              this.scrapeForm.source_key = '';
+              if (this.currentPage === 'leads') this.loadLeads();
+              if (this.currentPage === 'runs') this.loadRuns();
+              this.loadSidebarStats();
+            } else {
+              this.toast(json.error || 'Scrape failed.', 'error');
+            }
+          } catch (e) {
+            this.toast('Failed to trigger scrape.', 'error');
+          } finally {
+            this.scrapeRunning = false;
+          }
+        },
+
+        async promoteLead(lead) {
+          if (!lead || lead.deal_id) return;
+          try {
+            const res = await fetch(`${API}/leads/${lead.id}/promote`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({})
+            });
+            const json = await res.json();
+            if (json.success) {
+              this.toast(`Lead promoted to deal: ${json.data?.deal?.name || 'New Deal'}`, 'success');
+              lead.deal_id = json.data?.deal?.id;
+              this.loadSidebarStats();
+            } else {
+              this.toast(json.error || 'Promote failed.', 'error');
+            }
+          } catch (e) {
+            this.toast('Failed to promote lead.', 'error');
+          }
+        },
+
+        async createDeal() {
+          if (!this.newDealForm.name || !this.newDealForm.sourceType) return;
+          this.dealCreating = true;
+          try {
+            const body = {
+              name: this.newDealForm.name,
+              sourceType: this.newDealForm.sourceType,
+            };
+            if (this.newDealForm.sourceUrl) body.sourceUrl = this.newDealForm.sourceUrl;
+
+            const res = await fetch(`${API}/deals`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(body)
+            });
+            const json = await res.json();
+            if (json.success) {
+              this.toast(`Deal created: ${json.data?.name}`, 'success');
+              this.showNewDealModal = false;
+              this.newDealForm = { name: '', sourceType: 'manual', sourceUrl: '' };
+              await this.loadDeals();
+              this.loadSidebarStats();
+            } else {
+              this.toast(json.error || 'Failed to create deal.', 'error');
+            }
+          } catch (e) {
+            this.toast('Failed to create deal.', 'error');
+          } finally {
+            this.dealCreating = false;
+          }
+        },
+
+        async openDealDetail(dealId) {
+          this.showDealDetail = true;
+          this.selectedDeal = null;
+          this.dealDetailLoading = true;
+          this.dealTab = 'Overview';
+          try {
+            const res = await fetch(`${API}/deals/${dealId}`);
+            const json = await res.json();
+            if (json.success) {
+              this.selectedDeal = json.data;
+            } else {
+              this.toast(json.error || 'Failed to load deal.', 'error');
+            }
+          } catch (e) {
+            this.toast('Failed to load deal detail.', 'error');
+          } finally {
+            this.dealDetailLoading = false;
+          }
+        },
+
+        async runPipeline(dealId) {
+          if (!dealId || this.pipelineRunning) return;
+          this.pipelineRunning = true;
+          this.toast('Running AI pipeline... this may take 60-90 seconds.', 'info');
+          try {
+            const deal = this.selectedDeal?.deal;
+            const body = {};
+
+            // If we have property data, use it as manualData
+            if (this.selectedDeal?.property || this.selectedDeal?.lease) {
+              const p = this.selectedDeal?.property || {};
+              const l = this.selectedDeal?.lease || {};
+              body.manualData = {
+                addressLine1: p.address_line1,
+                city: p.city,
+                state: p.state,
+                postalCode: p.postal_code,
+                propertyType: p.property_type,
+                buildingSqft: p.building_sqft,
+                yearBuilt: p.year_built,
+                tenantName: l.tenant_name,
+                leaseType: l.lease_type,
+                leaseStartDate: l.lease_start_date,
+                leaseEndDate: l.lease_end_date,
+                baseRentAnnual: l.base_rent_annual,
+                rentPsf: l.rent_psf,
+              };
+            } else {
+              body.manualData = { note: 'Placeholder — add document content or manual data to analyze' };
+            }
+
+            const res = await fetch(`${API}/deals/${dealId}/pipeline`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(body)
+            });
+            const json = await res.json();
+            if (json.success) {
+              this.toast('Pipeline complete! Deal fully analyzed.', 'success');
+              // Reload deal detail
+              await this.openDealDetail(dealId);
+              await this.loadDeals();
+            } else {
+              this.toast(json.error || 'Pipeline failed.', 'error');
+            }
+          } catch (e) {
+            this.toast('Pipeline request failed.', 'error');
+          } finally {
+            this.pipelineRunning = false;
+          }
+        },
+
+        async deleteDeal(dealId) {
+          if (!confirm('Delete this deal? This cannot be undone.')) return;
+          try {
+            const res = await fetch(`${API}/deals/${dealId}`, { method: 'DELETE' });
+            const json = await res.json();
+            if (json.success) {
+              this.toast('Deal deleted.', 'success');
+              this.deals = this.deals.filter(d => d.id !== dealId);
+              if (this.showDealDetail && this.selectedDeal?.deal?.id === dealId) {
+                this.showDealDetail = false;
+              }
+              this.loadSidebarStats();
+            } else {
+              this.toast(json.error || 'Delete failed.', 'error');
+            }
+          } catch (e) {
+            this.toast('Failed to delete deal.', 'error');
+          }
+        },
+
+        openLeadDetail(lead) {
+          this.selectedLead = lead;
+          this.showLeadDetail = true;
+        },
+
+        // ===== TOAST =====
+
+        toast(message, type = 'info') {
+          const id = Date.now();
+          this.toasts.push({ id, message, type });
+          setTimeout(() => {
+            this.toasts = this.toasts.filter(t => t.id !== id);
+          }, 4500);
+        },
+
+        // ===== HELPERS =====
+
+        hotScoreBadge(score) {
+          if (score == null) return 'bg-slate-300 text-slate-600';
+          if (score >= 80) return 'bg-green-500';
+          if (score >= 60) return 'bg-yellow-500';
+          return 'bg-slate-400';
+        },
+
+        leadTypeColor(type, mode) {
+          const map = {
+            probate: 'bg-purple-400',
+            foreclosure: 'bg-red-400',
+            pre_foreclosure: 'bg-orange-400',
+            tax_lien: 'bg-blue-400',
+            vacancy: 'bg-slate-400',
+          };
+          return map[type] || 'bg-slate-400';
+        },
+
+        leadTypeBadge(type) {
+          const map = {
+            probate: 'bg-purple-100 text-purple-700',
+            foreclosure: 'bg-red-100 text-red-700',
+            pre_foreclosure: 'bg-orange-100 text-orange-700',
+            tax_lien: 'bg-blue-100 text-blue-700',
+            vacancy: 'bg-slate-100 text-slate-600',
+          };
+          return map[type] || 'bg-slate-100 text-slate-600';
+        },
+
+        dealStatusBadge(status) {
+          const map = {
+            draft: 'bg-slate-100 text-slate-600',
+            ingested: 'bg-blue-100 text-blue-700',
+            enriched: 'bg-purple-100 text-purple-700',
+            underwritten: 'bg-orange-100 text-orange-700',
+            memo_generated: 'bg-green-100 text-green-700',
+          };
+          return map[status] || 'bg-slate-100 text-slate-600';
+        },
+
+        scoreColor(score) {
+          if (score == null) return 'text-slate-300';
+          if (score >= 70) return 'text-green-600';
+          if (score >= 50) return 'text-yellow-600';
+          return 'text-red-500';
+        },
+
+        scoreBarColor(score) {
+          if (score == null) return 'bg-slate-200';
+          if (score >= 70) return 'bg-green-500';
+          if (score >= 50) return 'bg-yellow-500';
+          return 'bg-red-400';
+        },
+
+        formatDate(val) {
+          if (!val) return '—';
+          try {
+            const d = new Date(val);
+            if (isNaN(d.getTime())) return val;
+            return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+          } catch { return val; }
+        },
+
+        formatDuration(ms) {
+          if (ms == null) return '—';
+          // Could be milliseconds or seconds
+          const secs = ms > 100000 ? Math.round(ms / 1000) : ms;
+          if (secs < 60) return `${secs}s`;
+          return `${Math.round(secs / 60)}m ${secs % 60}s`;
+        },
+
+        formatFinancial(val, fmt) {
+          if (val == null) return '—';
+          const n = Number(val);
+          if (isNaN(n)) return val;
+          switch (fmt) {
+            case 'currency': return '$' + n.toLocaleString('en-US', { maximumFractionDigits: 0 });
+            case 'percent': return (n * (n > 1 ? 1 : 100)).toFixed(2).replace(/\.00$/, '') + '%';
+            case 'decimal': return n.toFixed(2);
+            case 'years': return n + ' yrs';
+            default: return String(n);
+          }
+        },
+
+        recommendationLabel(rec) {
+          const map = {
+            approve: 'Recommendation: Approve',
+            approve_with_conditions: 'Recommendation: Approve with Conditions',
+            decline: 'Recommendation: Decline',
+          };
+          return map[rec] || 'Recommendation: Pending';
+        },
+
+        connectorDescription(key) {
+          const map = {
+            kcoj_courtnet: 'Scrapes KY Court of Justice for active probate and foreclosure case filings. Covers all 120 KY counties.',
+            fayette_pva: 'Pulls property assessment records from Fayette County PVA — includes owner, parcel, value, and building data.',
+            scott_pva: 'Scott County PVA property records — high-growth exurban market north of Lexington.',
+            oldham_pva: 'Oldham County PVA records — affluent suburban corridor between Louisville and Cincinnati.',
+            ky_state_gis: 'Statewide GIS layers for vacancy indicators, tax delinquency, and distressed property flags.',
+            legal_notices: 'Monitors KY newspaper legal notice publications for foreclosure notices, estate sales, and sheriff sales.',
+            zillow_public: 'Public Zillow listing data for off-market signals, price reduction history, and days-on-market outliers.',
+          };
+          return map[key] || '';
+        },
+      };
+    }
+  </script>
+
+</body>
+</html>
