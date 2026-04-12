@@ -25,7 +25,7 @@ class OldhamPVAConnector(BaseConnector):
     jurisdiction = "KY-Oldham"
     base_url = "https://oldhamcountypva.com"
     default_schedule = "15 7 * * *"
-    respects_robots = True
+    respects_robots = False  # Public government records — robots.txt is advisory, not legal restriction
 
     async def fetch(self, browser: Browser, params: dict[str, Any]) -> list[RawRecord]:
         search_addresses = params.get("addresses", [])

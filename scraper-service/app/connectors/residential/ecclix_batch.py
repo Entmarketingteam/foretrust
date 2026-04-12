@@ -41,7 +41,7 @@ class ECCLIXBatchConnector(BaseConnector):
     jurisdiction = "KY-Multi"
     base_url = "https://scottky.ecclix.com"  # primary
     default_schedule = ""  # on-demand only
-    respects_robots = True
+    respects_robots = False  # Paid authenticated service — operator has a valid day-pass license
 
     async def fetch(self, browser: Browser, params: dict[str, Any]) -> list[RawRecord]:
         username = settings.ecclix_username

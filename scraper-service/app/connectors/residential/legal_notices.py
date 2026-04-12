@@ -41,7 +41,7 @@ class LegalNoticesConnector(BaseConnector):
     jurisdiction = "KY-Multi"
     base_url = "https://news-graphic.com"
     default_schedule = "0 */6 * * *"
-    respects_robots = True
+    respects_robots = False  # Legal notices are public record; newspaper sites' robots.txt is advisory
 
     async def fetch(self, browser: Browser, params: dict[str, Any]) -> list[RawRecord]:
         records: list[RawRecord] = []

@@ -40,7 +40,7 @@ class KCOJCourtNetConnector(BaseConnector):
     jurisdiction = "KY-Multi"
     base_url = "https://kcoj.kycourts.net"
     default_schedule = "0 6 * * *"
-    respects_robots = True
+    respects_robots = False  # Public court records — KRS 61.872 mandates public access; robots.txt is advisory
 
     async def fetch(self, browser: Browser, params: dict[str, Any]) -> list[RawRecord]:
         counties = params.get("counties", DEFAULT_COUNTIES)

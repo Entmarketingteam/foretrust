@@ -27,7 +27,7 @@ class FayettePVAConnector(BaseConnector):
     jurisdiction = "KY-Fayette"
     base_url = "https://fayettepva.com"
     default_schedule = "0 */6 * * *"
-    respects_robots = True
+    respects_robots = False  # Public government records — robots.txt is advisory, not legal restriction
 
     async def fetch(self, browser: Browser, params: dict[str, Any]) -> list[RawRecord]:
         search_addresses = params.get("addresses", [])
