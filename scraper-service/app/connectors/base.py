@@ -14,9 +14,10 @@ from typing import Any
 from playwright.async_api import Browser
 
 from app.models import Lead, RawRecord, SourceRun, SourceRunStatus, Vertical
-from app.browser import create_context, check_robots_txt, human_delay
+from app.browser import create_browserbase_browser, create_context, check_robots_txt, human_delay
 from app.proxy import ProxySession, proxy_manager
 from app.pipeline.normalize import normalize_lead
+from app.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +31,7 @@ class BaseConnector(ABC):
     base_url: str  # e.g. "https://kcoj.kycourts.net"
     default_schedule: str  # cron expression, e.g. "0 6 * * *"
     respects_robots: bool = True
+    use_browserbase: bool = False  # set True for heavy anti-bot sites (Zillow, etc.)
     max_concurrent_pages: int = 1  # never more than 1 against gov sites
 
     @abstractmethod
@@ -73,7 +75,11 @@ class BaseConnector(ABC):
                         return [], run
 
             # 2. Fetch raw records
-            raw_records = await self.fetch(browser, params)
+            if self.use_browserbase and settings.browserbase_api_key:
+                async with create_browserbase_browser() as bb_browser:
+                    raw_records = await self.fetch(bb_browser, params)
+            else:
+                raw_records = await self.fetch(browser, params)
             run.records_found = len(raw_records)
 
             # 3. Parse + normalize + dedupe

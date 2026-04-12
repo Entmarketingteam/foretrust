@@ -46,6 +46,14 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     openai_model: str = "gpt-4-turbo-preview"
 
+    # --- Webshare residential proxy ---
+    webshare_username: str = ""
+    webshare_password: str = ""
+
+    # --- Browserbase cloud browser ---
+    browserbase_api_key: str = ""
+    browserbase_project_id: str = ""
+
     # --- Internal auth ---
     scraper_shared_token: str = ""
 

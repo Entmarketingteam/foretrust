@@ -28,7 +28,8 @@ class ZillowPublicConnector(BaseConnector):
     jurisdiction = "KY-Multi"
     base_url = "https://www.zillow.com"
     default_schedule = ""  # manually triggered only
-    respects_robots = True
+    respects_robots = False  # User-authorized enrichment; Zillow public records are publicly accessible
+    use_browserbase = True   # Zillow has aggressive bot detection; Browserbase handles it
 
     async def fetch(self, browser: Browser, params: dict[str, Any]) -> list[RawRecord]:
         addresses = params.get("addresses", [])

@@ -6,8 +6,9 @@ import asyncio
 import random
 import logging
 from contextlib import asynccontextmanager
-from typing import AsyncGenerator
+from typing import Any, AsyncGenerator
 
+import httpx
 from playwright.async_api import async_playwright, Browser, BrowserContext, Page
 
 from app.proxy import ProxySession
@@ -63,7 +64,7 @@ async def create_context(
     browser: Browser,
     proxy_session: ProxySession | None = None,
 ) -> AsyncGenerator[BrowserContext, None]:
-    """Create a browser context with a random user agent."""
+    """Create a browser context with UA rotation and playwright-stealth patches."""
     ua = random.choice(USER_AGENTS)
     ctx_args: dict = {
         "user_agent": ua,
@@ -72,10 +73,69 @@ async def create_context(
         "timezone_id": "America/New_York",
     }
     context = await browser.new_context(**ctx_args)
+
+    # Wrap new_page to auto-apply playwright-stealth before first navigation.
+    # This patches navigator.webdriver, plugins, languages, etc. so bot-detection
+    # JS sees a normal browser fingerprint.
+    _orig_new_page = context.new_page
+
+    async def _stealth_new_page(**kwargs: Any) -> Page:
+        page = await _orig_new_page(**kwargs)
+        try:
+            from playwright_stealth import stealth_async  # type: ignore[import]
+            await stealth_async(page)
+        except ImportError:
+            logger.debug("playwright-stealth not installed; skipping stealth patches")
+        return page
+
+    context.new_page = _stealth_new_page  # type: ignore[method-assign]
+
     try:
         yield context
     finally:
         await context.close()
+
+
+@asynccontextmanager
+async def create_browserbase_browser() -> AsyncGenerator[Browser, None]:
+    """Connect to a Browserbase cloud browser for anti-bot bypass.
+
+    Browserbase handles stealth fingerprinting, CAPTCHA, and residential IP
+    rotation automatically at the infrastructure level. Use this for sites
+    with aggressive bot detection (e.g. Zillow).
+
+    Requires BROWSERBASE_API_KEY and BROWSERBASE_PROJECT_ID in Doppler.
+    """
+    from app.config import settings  # local import — avoids circular at module load
+
+    if not settings.browserbase_api_key:
+        raise RuntimeError("BROWSERBASE_API_KEY not configured in Doppler")
+
+    # Create a remote session via Browserbase REST API
+    async with httpx.AsyncClient(timeout=30) as http:
+        resp = await http.post(
+            "https://www.browserbase.com/v1/sessions",
+            headers={
+                "x-bb-api-key": settings.browserbase_api_key,
+                "Content-Type": "application/json",
+            },
+            json={"projectId": settings.browserbase_project_id},
+        )
+        resp.raise_for_status()
+        session_id = resp.json()["id"]
+
+    logger.info("Browserbase session started: %s", session_id)
+
+    async with async_playwright() as p:
+        browser = await p.chromium.connect_over_cdp(
+            f"wss://connect.browserbase.com?apiKey={settings.browserbase_api_key}"
+            f"&sessionId={session_id}",
+            timeout=30000,
+        )
+        try:
+            yield browser
+        finally:
+            await browser.close()
 
 
 async def safe_goto(page: Page, url: str, timeout: int = 30000) -> None:
