@@ -1,13 +1,8 @@
 FROM python:3.11-slim
 
-# Install base system deps + Doppler CLI in a single layer
-RUN apt-get update && apt-get install -y --no-install-recommends curl gnupg tesseract-ocr && \
-    curl -sLf --retry 3 --tlsv1.2 --proto "=https" \
-    'https://packages.doppler.com/public/cli/gpg.DE2A7741A397C129.key' | \
-    gpg --dearmor -o /usr/share/keyrings/doppler-archive-keyring.gpg && \
-    echo "deb [signed-by=/usr/share/keyrings/doppler-archive-keyring.gpg] https://packages.doppler.com/public/cli/deb/debian any-version main" \
-    > /etc/apt/sources.list.d/doppler-cli.list && \
-    apt-get update && apt-get install -y doppler && \
+# Install base system deps + Doppler CLI via install script
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl gnupg tesseract-ocr && \
+    curl -Ls --tlsv1.2 --proto "=https" --retry 3 https://cli.doppler.com/install.sh | sh && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
