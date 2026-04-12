@@ -12,7 +12,6 @@ gspread==6.1.4
 google-auth==2.37.0
 apscheduler==3.10.4
 supabase==2.11.0
-postgrest==0.17.0
 pytesseract==0.3.13
 Pillow==11.1.0
 feedparser==6.0.11
