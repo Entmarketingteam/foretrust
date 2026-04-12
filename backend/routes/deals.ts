@@ -190,7 +190,7 @@ router.post('/:dealId/enrich', async (req: Request, res: Response) => {
     };
 
     // Call OpenAI for enrichment
-    const enrichmentData = await openai.enrichDeal(inputData as openai.ParsedDealData);
+    const enrichmentData = await openai.enrichDeal(inputData as unknown as openai.ParsedDealData);
 
     // Save enrichment data
     const enrichment = await db.upsertEnrichment(dealId, {

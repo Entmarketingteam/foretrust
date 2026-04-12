@@ -69,7 +69,7 @@ router.get('/export.csv', async (req: Request, res: Response) => {
     const csvRows = [headers.join(',')];
     for (const lead of leads) {
       const row = headers.map(h => {
-        const val = (lead as Record<string, unknown>)[h];
+        const val = (lead as unknown as Record<string, unknown>)[h];
         if (val === null || val === undefined) return '';
         return escapeCsv(val);
       });

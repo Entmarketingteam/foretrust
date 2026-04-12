@@ -529,7 +529,7 @@ export async function listDeals(filters?: {
     cap_rate: (d.ft_deal_financials as Record<string, unknown>)?.cap_rate,
     noi_year1: (d.ft_deal_financials as Record<string, unknown>)?.noi_year1,
     levered_irr: (d.ft_deal_financials as Record<string, unknown>)?.levered_irr,
-  }));
+  })) as unknown as Deal[];
 }
 
 // Property Attributes
