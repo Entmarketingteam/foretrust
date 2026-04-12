@@ -96,8 +96,30 @@ router.post('/:dealId/ingest', async (req: Request, res: Response) => {
     let parsedData: openai.ParsedDealData;
 
     if (manualData) {
-      // Use manually provided data
-      parsedData = manualData;
+      // Normalize snake_case keys to camelCase so callers can use either convention
+      const d = manualData as Record<string, unknown>;
+      parsedData = {
+        addressLine1: (d.addressLine1 ?? d.address_line1 ?? null) as string | null,
+        city: (d.city ?? null) as string | null,
+        state: (d.state ?? null) as string | null,
+        postalCode: (d.postalCode ?? d.postal_code ?? null) as string | null,
+        tenantName: (d.tenantName ?? d.tenant_name ?? null) as string | null,
+        propertyType: (d.propertyType ?? d.property_type ?? null) as string | null,
+        buildingSqft: (d.buildingSqft ?? d.building_sqft ?? null) as number | null,
+        landAcres: (d.landAcres ?? d.land_acres ?? null) as number | null,
+        yearBuilt: (d.yearBuilt ?? d.year_built ?? null) as number | null,
+        clearHeightFt: (d.clearHeightFt ?? d.clear_height_ft ?? null) as number | null,
+        dockDoors: (d.dockDoors ?? d.dock_doors ?? null) as number | null,
+        driveInDoors: (d.driveInDoors ?? d.drive_in_doors ?? null) as number | null,
+        leaseType: (d.leaseType ?? d.lease_type ?? null) as string | null,
+        leaseStartDate: (d.leaseStartDate ?? d.lease_start_date ?? null) as string | null,
+        leaseEndDate: (d.leaseEndDate ?? d.lease_end_date ?? null) as string | null,
+        baseRentAnnual: (d.baseRentAnnual ?? d.base_rent_annual ?? null) as number | null,
+        rentPsf: (d.rentPsf ?? d.rent_psf ?? null) as number | null,
+        purchasePrice: (d.purchasePrice ?? d.purchase_price ?? null) as number | null,
+        rentEscalations: (d.rentEscalations ?? d.rent_escalations ?? []) as Array<{ year: number; bumpPct: number }>,
+        options: (d.options ?? []) as Array<{ type: string; years: number }>,
+      };
     } else if (documentContent) {
       // Parse document using OpenAI
       parsedData = await openai.parseDocument(documentContent);
@@ -378,7 +400,29 @@ router.post('/:dealId/pipeline', async (req: Request, res: Response) => {
     // Step 1: Ingest
     let parsedData: openai.ParsedDealData;
     if (manualData) {
-      parsedData = manualData;
+      const d = manualData as Record<string, unknown>;
+      parsedData = {
+        addressLine1: (d.addressLine1 ?? d.address_line1 ?? null) as string | null,
+        city: (d.city ?? null) as string | null,
+        state: (d.state ?? null) as string | null,
+        postalCode: (d.postalCode ?? d.postal_code ?? null) as string | null,
+        tenantName: (d.tenantName ?? d.tenant_name ?? null) as string | null,
+        propertyType: (d.propertyType ?? d.property_type ?? null) as string | null,
+        buildingSqft: (d.buildingSqft ?? d.building_sqft ?? null) as number | null,
+        landAcres: (d.landAcres ?? d.land_acres ?? null) as number | null,
+        yearBuilt: (d.yearBuilt ?? d.year_built ?? null) as number | null,
+        clearHeightFt: (d.clearHeightFt ?? d.clear_height_ft ?? null) as number | null,
+        dockDoors: (d.dockDoors ?? d.dock_doors ?? null) as number | null,
+        driveInDoors: (d.driveInDoors ?? d.drive_in_doors ?? null) as number | null,
+        leaseType: (d.leaseType ?? d.lease_type ?? null) as string | null,
+        leaseStartDate: (d.leaseStartDate ?? d.lease_start_date ?? null) as string | null,
+        leaseEndDate: (d.leaseEndDate ?? d.lease_end_date ?? null) as string | null,
+        baseRentAnnual: (d.baseRentAnnual ?? d.base_rent_annual ?? null) as number | null,
+        rentPsf: (d.rentPsf ?? d.rent_psf ?? null) as number | null,
+        purchasePrice: (d.purchasePrice ?? d.purchase_price ?? null) as number | null,
+        rentEscalations: (d.rentEscalations ?? d.rent_escalations ?? []) as Array<{ year: number; bumpPct: number }>,
+        options: (d.options ?? []) as Array<{ type: string; years: number }>,
+      };
     } else if (documentContent) {
       parsedData = await openai.parseDocument(documentContent);
     } else {
