@@ -4,13 +4,22 @@ Scans KY GIS for residential parcels matching criteria (zoning class,
 no recent transfer) and queues matching addresses for PVA lookup.
 This bypasses PVA search-by-name limits by feeding addresses instead.
 
-Verified working endpoints (tested 2025-04-11):
+Verified working endpoints (confirmed 2026-04-12):
 - fayette:  maps.lexingtonky.gov/lfucggis  layer 1 = "Parcel"
             fields: PVANUM, NAME (street name), ADDRESS, CLASS ('R'=residential), PVA_ACRE
 - ky_state: kygisserver.ky.gov WGS84WM_Services/Ky_PVA_Webster_Parcels  layer 1 = "Webster Parcels"
             fields: PARCEL_ID, NAME (owner), ADDRESS1 (mailing), CLASS ('RESIDENTIAL'), ACRES, LOCATION (site addr)
 - jefferson: gis.lojic.org LojicSolutions/OpenDataPVA  layer 1 = "Jefferson County KY Parcels"
              fields: PARCELID, PARCEL_TYPE, LRSN (geometry/ID only — no owner/address, used for parcel enumeration)
+
+Counties NOT available via public ArcGIS REST (as of 2026-04-12):
+  Scott, Jessamine, Madison — use Schneider Corp (qPublic/Beacon) proprietary viewer
+  Oldham — LOJIC covers imagery only, no public parcel REST endpoint
+  Clark — ccgisonline.com has ArcGIS Server but cert/access issues
+  Woodford — has GIS hub but no parcel FeatureService published
+
+For these counties, leads come from KCOJ court records (owner name lookups)
+enriched via the corresponding PVA connector. No GIS discovery needed.
 
 Note: None of these endpoints expose building sqft directly. The original
 min_sqft filter has been replaced with CLASS-based residential filtering.
@@ -69,75 +78,6 @@ GIS_ENDPOINTS: dict[str, dict] = {
         "field_address": None,
         "field_class": "PARCEL_TYPE",
         "field_acres": None,
-    },
-    "scott": {
-        # Scott County KY GIS — Georgetown area
-        # KY GeoNet statewide server — Scott County parcel layer
-        # VERIFY_URL: confirm service name at https://kygeonet.ky.gov/arcgis/rest/services/
-        "url": "https://kygeonet.ky.gov/arcgis/rest/services/KyFromAbove/Scott_County_Parcels/MapServer/0/query",
-        "where_residential": "PROPCLASS LIKE '%RESIDENTIAL%' OR PROPCLASS = 'R'",
-        "field_parcel_id": "PARCELID",
-        "field_owner": "OWNERNAME",
-        "field_address": "SITEADDRESS",
-        "field_class": "PROPCLASS",
-        "field_acres": "CALCACRES",
-    },
-    "oldham": {
-        # Oldham County KY GIS — La Grange/Crestwood area
-        # VERIFY_URL: confirm service name at https://kygeonet.ky.gov/arcgis/rest/services/
-        "url": "https://kygeonet.ky.gov/arcgis/rest/services/KyFromAbove/Oldham_County_Parcels/MapServer/0/query",
-        "where_residential": "PROPCLASS LIKE '%RESIDENTIAL%' OR PROPCLASS = 'R'",
-        "field_parcel_id": "PARCELID",
-        "field_owner": "OWNERNAME",
-        "field_address": "SITEADDRESS",
-        "field_class": "PROPCLASS",
-        "field_acres": "CALCACRES",
-    },
-    "woodford": {
-        # Woodford County KY GIS — Versailles/horse farm country
-        # High-value properties; strong probate activity
-        # VERIFY_URL: confirm service name at https://kygeonet.ky.gov/arcgis/rest/services/
-        "url": "https://kygeonet.ky.gov/arcgis/rest/services/KyFromAbove/Woodford_County_Parcels/MapServer/0/query",
-        "where_residential": "PROPCLASS LIKE '%RESIDENTIAL%' OR PROPCLASS = 'R'",
-        "field_parcel_id": "PARCELID",
-        "field_owner": "OWNERNAME",
-        "field_address": "SITEADDRESS",
-        "field_class": "PROPCLASS",
-        "field_acres": "CALCACRES",
-    },
-    "jessamine": {
-        # Jessamine County KY GIS — Nicholasville/south Lexington suburban
-        # Fast-growing; high residential turnover
-        # VERIFY_URL: confirm service name at https://kygeonet.ky.gov/arcgis/rest/services/
-        "url": "https://kygeonet.ky.gov/arcgis/rest/services/KyFromAbove/Jessamine_County_Parcels/MapServer/0/query",
-        "where_residential": "PROPCLASS LIKE '%RESIDENTIAL%' OR PROPCLASS = 'R'",
-        "field_parcel_id": "PARCELID",
-        "field_owner": "OWNERNAME",
-        "field_address": "SITEADDRESS",
-        "field_class": "PROPCLASS",
-        "field_acres": "CALCACRES",
-    },
-    "clark": {
-        # Clark County KY GIS — Winchester area
-        # VERIFY_URL: confirm service name at https://kygeonet.ky.gov/arcgis/rest/services/
-        "url": "https://kygeonet.ky.gov/arcgis/rest/services/KyFromAbove/Clark_County_Parcels/MapServer/0/query",
-        "where_residential": "PROPCLASS LIKE '%RESIDENTIAL%' OR PROPCLASS = 'R'",
-        "field_parcel_id": "PARCELID",
-        "field_owner": "OWNERNAME",
-        "field_address": "SITEADDRESS",
-        "field_class": "PROPCLASS",
-        "field_acres": "CALCACRES",
-    },
-    "madison": {
-        # Madison County KY GIS — Richmond/Berea area (EKU market)
-        # VERIFY_URL: confirm service name at https://kygeonet.ky.gov/arcgis/rest/services/
-        "url": "https://kygeonet.ky.gov/arcgis/rest/services/KyFromAbove/Madison_County_Parcels/MapServer/0/query",
-        "where_residential": "PROPCLASS LIKE '%RESIDENTIAL%' OR PROPCLASS = 'R'",
-        "field_parcel_id": "PARCELID",
-        "field_owner": "OWNERNAME",
-        "field_address": "SITEADDRESS",
-        "field_class": "PROPCLASS",
-        "field_acres": "CALCACRES",
     },
 }
 
