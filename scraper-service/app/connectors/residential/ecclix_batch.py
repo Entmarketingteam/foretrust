@@ -1,12 +1,12 @@
-"""eCCLIX multi-county batch runner.
+\"\"\"eCCLIX multi-county batch runner.
 
 Batch-scrapes deed, will, and mortgage records across eCCLIX counties
-(Scott, Clark, Madison, Bourbon, Woodford) using a single day-pass.
+(Scott, Clark, Madison, Bourbon, Woodford, Franklin) using a single day-pass.
 
 Triggering: on-demand once lead queue exceeds ECCLIX_BATCH_THRESHOLD.
 Operator buys a day pass (~$15-30), enters creds in Doppler, then
-triggers via POST /api/foretrust/leads/scrape {source_key: "ecclix_batch"}.
-"""
+triggers via POST /api/foretrust/leads/scrape {source_key: \"ecclix_batch\"}.
+\"\"\"
 
 from __future__ import annotations
 
@@ -26,12 +26,14 @@ logger = logging.getLogger(__name__)
 
 # eCCLIX portals by county
 ECCLIX_URLS: dict[str, str] = {
-    "scott": "https://scottky.ecclix.com",
-    "clark": "https://clarkky.ecclix.com",
-    "madison": "https://madisonky.ecclix.com",
-    "bourbon": "https://bourbonky.ecclix.com",
-    "woodford": "https://woodfordky.ecclix.com",
+    \"scott\": \"https://scottky.ecclix.com\",
+    \"clark\": \"https://clarkky.ecclix.com\",
+    \"madison\": \"https://madisonky.ecclix.com\",
+    \"bourbon\": \"https://bourbonky.ecclix.com\",
+    \"woodford\": \"https://woodfordky.ecclix.com\",
+    \"franklin\": \"https://franklinky.ecclix.com\",
 }
+
 
 
 @register
