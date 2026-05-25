@@ -79,6 +79,14 @@ GET  /api/foretrust/leads/runs  → last 20 scraper run statuses
 - Scraper service has a volume mount at `/app/exports`
 - Healthchecks: backend → `/api/foretrust/health`, scraper → `/health`
 
+## Lead AI (Gemini Ultra CLI)
+
+- **Primary:** `gemini` CLI + `GEMINI_OAUTH_CREDS` (Google AI Ultra subscription — same pattern as `agent-server`)
+- **Fallback:** `AGENT_SERVER_API_KEY` → Claude `/complete` if OAuth not configured
+- **Maps:** `GOOGLE_MAPS_API_KEY` (Places + Geocoding) for entity normalization on interpret
+- **Sync OAuth to Railway:** `bash backend/scripts/sync-gemini-oauth.sh` (after local `gemini` sign-in)
+- **Do not set** `GEMINI_API_KEY` on Railway unless you want pay-as-you-go API billing
+
 ## Environment Variables (via Doppler)
 
 | Variable | Description |
@@ -86,6 +94,10 @@ GET  /api/foretrust/leads/runs  → last 20 scraper run statuses
 | `SUPABASE_URL` | Supabase project URL |
 | `SUPABASE_SERVICE_ROLE_KEY` | Service role key (bypasses RLS) |
 | `OPENAI_API_KEY` | For deal analysis |
+| `GEMINI_OAUTH_CREDS` | Full JSON from `~/.gemini/oauth_creds.json` (Ultra CLI) |
+| `GEMINI_MODEL` | Default `gemini-2.5-flash` |
+| `GOOGLE_MAPS_API_KEY` | Places Text Search + Geocoding |
+| `AGENT_SERVER_API_KEY` | Fallback Claude interpret/SLB |
 | `SCRAPER_SERVICE_URL` | Internal URL of Python scraper |
 | `SCRAPER_SHARED_TOKEN` | Shared auth secret between services |
 | `SCRAPER_TIMEOUT_MS` | Default: 30000 |

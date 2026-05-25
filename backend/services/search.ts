@@ -1,6 +1,8 @@
 // Foretrust Lead Research Service
-// Runs parallel web searches to gather business intel for SLB thesis generation.
-// Priority: Tavily (free dev tier) → Perplexity sonar (free) → SerpAPI (fallback)
+// Primary: Gemini Ultra CLI (Google Search via subscription)
+// Fallback: Tavily → Perplexity → SerpAPI
+
+import { isGeminiCliAvailable, runGeminiPrompt, parseJsonWithRepair } from './gemini-cli.js';
 
 export interface SearchResult {
   title: string;
@@ -10,10 +12,16 @@ export interface SearchResult {
 }
 
 export interface LeadSearchResults {
-  answer?: string;          // Tavily/Perplexity AI answer
+  answer?: string;
   results: SearchResult[];
-  source: 'tavily' | 'perplexity' | 'serpapi' | 'none';
+  source: 'gemini' | 'tavily' | 'perplexity' | 'serpapi' | 'none';
   queries_run: string[];
+}
+
+interface GeminiResearchPayload {
+  answer?: string;
+  results?: SearchResult[];
+  queries_run?: string[];
 }
 
 // ── Tavily ──────────────────────────────────────────────────────────────────
@@ -122,6 +130,55 @@ async function searchSerp(query: string): Promise<SearchResult[]> {
   }));
 }
 
+// ── Gemini CLI (Ultra + Google Search) ───────────────────────────────────────
+
+async function researchLeadGemini(lead: {
+  owner_name?: string | null;
+  property_address?: string | null;
+  city?: string | null;
+  state?: string | null;
+  jurisdiction?: string | null;
+  lead_type?: string | null;
+  building_sqft?: number | null;
+  year_built?: number | null;
+  ai_interpretation?: { likely_industry?: string; business_category?: string } | null;
+}): Promise<LeadSearchResults> {
+  const location = [lead.city, lead.jurisdiction, lead.state || 'KY'].filter(Boolean).join(' ');
+  const ownerRaw = lead.owner_name || '';
+  const ownerClean = ownerRaw.replace(/\s+(LLC|INC|CORP|LTD|CO\.?|L\.L\.C\.?|C\/O.*)/gi, '').trim();
+  const industry = lead.ai_interpretation?.likely_industry || '';
+
+  const prompt = `You are researching a Kentucky commercial real estate lead for sale-leaseback origination.
+
+Use Google Search to find current, verifiable information about this owner and property.
+
+Owner (legal): ${ownerRaw}
+Owner (clean): ${ownerClean}
+Property: ${lead.property_address || 'unknown'}
+Location: ${location}
+Industry hint: ${industry || 'unknown'}
+Building: ${lead.building_sqft ? `${lead.building_sqft} sqft` : 'unknown'}
+
+Find: business history, operations evidence, distress/news, years at location, expansion or financial signals relevant to a sale-leaseback.
+
+Return ONLY a JSON object (no markdown):
+{
+  "answer": "2-4 paragraph synthesis",
+  "results": [{"title": "string", "url": "https://...", "snippet": "string"}],
+  "queries_run": ["search queries you used"]
+}`;
+
+  const raw = runGeminiPrompt(prompt, { timeoutMs: 420000 });
+  const parsed = parseJsonWithRepair<GeminiResearchPayload>(raw);
+
+  return {
+    answer: parsed.answer || '',
+    results: (parsed.results || []).slice(0, 10),
+    source: 'gemini',
+    queries_run: parsed.queries_run || [ownerClean ? `"${ownerClean}" ${location}` : location],
+  };
+}
+
 // ── Main research function ───────────────────────────────────────────────────
 
 export async function researchLead(lead: {
@@ -135,6 +192,14 @@ export async function researchLead(lead: {
   year_built?: number | null;
   ai_interpretation?: { likely_industry?: string; business_category?: string } | null;
 }): Promise<LeadSearchResults> {
+  if (isGeminiCliAvailable()) {
+    try {
+      return await researchLeadGemini(lead);
+    } catch (e) {
+      console.warn('Gemini CLI research failed, falling back to legacy search:', e);
+    }
+  }
+
   // Build targeted search queries
   const location = [lead.city, lead.jurisdiction, lead.state || 'KY'].filter(Boolean).join(' ');
   const ownerRaw = lead.owner_name || '';

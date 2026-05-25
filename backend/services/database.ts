@@ -1023,6 +1023,15 @@ export interface LeadRecord {
     key_signals: string[];
     contact_strategy: string;
     interpreted_at: string;
+    production_fit?: number;
+    owner_operator_signal?: number;
+    sale_leaseback_fit?: number;
+    nnn_fit?: number;
+    qpp_fit?: number;
+    confidence?: number;
+    score_rationale?: Record<string, string>;
+    maps_entity?: Record<string, unknown>;
+    ai_provider?: string;
   };
 }
 

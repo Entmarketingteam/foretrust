@@ -1,9 +1,18 @@
-// Foretrust Claude AI Service
-// Routes through the ENT Agent Server proxy (Max subscription, no API key burn).
-// Endpoint: POST https://ent-agent-server-production.up.railway.app/complete
-// Auth: Bearer AGENT_SERVER_API_KEY
+// Foretrust lead AI — Gemini Ultra CLI (primary) or ENT Agent Server / Claude (fallback)
+
+import type { LeadSearchResults } from './search.js';
+import type { MapsEntity } from './maps.js';
+import { isGeminiCliAvailable, runGeminiPrompt, parseJsonWithRepair } from './gemini-cli.js';
 
 const AGENT_SERVER_URL = process.env.AGENT_SERVER_URL || 'https://ent-agent-server-production.up.railway.app';
+
+export interface ScoreRationale {
+  production_fit: string;
+  owner_operator_signal: string;
+  sale_leaseback_fit: string;
+  nnn_fit: string;
+  qpp_fit: string;
+}
 
 export interface LeadInterpretation {
   owner_type: 'LLC' | 'individual' | 'trust' | 'corporate' | 'government' | 'unknown';
@@ -17,9 +26,18 @@ export interface LeadInterpretation {
   key_signals: string[];
   contact_strategy: string;
   interpreted_at: string;
+  production_fit?: number;
+  owner_operator_signal?: number;
+  sale_leaseback_fit?: number;
+  nnn_fit?: number;
+  qpp_fit?: number;
+  confidence?: number;
+  score_rationale?: ScoreRationale;
+  maps_entity?: MapsEntity;
+  ai_provider?: 'gemini-cli' | 'claude';
 }
 
-export async function interpretLead(lead: {
+export type LeadInput = {
   owner_name?: string | null;
   property_address?: string | null;
   mailing_address?: string | null;
@@ -38,35 +56,43 @@ export async function interpretLead(lead: {
   source_key?: string | null;
   hot_score?: number | null;
   raw_payload?: object | null;
-}): Promise<LeadInterpretation> {
-  const apiKey = process.env.AGENT_SERVER_API_KEY;
-  if (!apiKey) throw new Error('AGENT_SERVER_API_KEY not set');
+};
 
-  const prompt = buildLeadInterpretationPrompt(lead);
+export type InterpretContext = {
+  searchResults?: LeadSearchResults;
+  mapsEntity?: MapsEntity | null;
+};
 
-  const response = await fetch(`${AGENT_SERVER_URL}/complete`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({ prompt }),
-  });
-
-  if (!response.ok) {
-    const err = await response.text();
-    throw new Error(`Agent server error: ${response.status} — ${err}`);
+export async function interpretLead(lead: LeadInput, context?: InterpretContext): Promise<LeadInterpretation> {
+  if (isGeminiCliAvailable()) {
+    const interp = await interpretLeadGemini(lead, context);
+    interp.ai_provider = 'gemini-cli';
+    return interp;
   }
-
-  const data = await response.json() as { text: string; returncode: number; stderr: string };
-  if (data.returncode !== 0) {
-    throw new Error(`Claude CLI error (rc=${data.returncode}): ${data.stderr}`);
-  }
-
-  return parseInterpretation(data.text);
+  const interp = await interpretLeadClaude(lead);
+  interp.ai_provider = 'claude';
+  return interp;
 }
 
-function buildLeadInterpretationPrompt(lead: Parameters<typeof interpretLead>[0]): string {
+async function interpretLeadGemini(lead: LeadInput, context?: InterpretContext): Promise<LeadInterpretation> {
+  const prompt = buildLeadInterpretationPrompt(lead, context);
+  const raw = runGeminiPrompt(prompt, { timeoutMs: 300000 });
+  const parsed = parseJsonWithRepair<LeadInterpretation>(raw);
+  if (context?.mapsEntity) parsed.maps_entity = context.mapsEntity;
+  if (!parsed.interpreted_at) parsed.interpreted_at = new Date().toISOString();
+  return parsed;
+}
+
+async function interpretLeadClaude(lead: LeadInput): Promise<LeadInterpretation> {
+  const apiKey = process.env.AGENT_SERVER_API_KEY;
+  if (!apiKey) throw new Error('AGENT_SERVER_API_KEY not set (and Gemini CLI OAuth not configured)');
+
+  const prompt = buildLeadInterpretationPrompt(lead);
+  const text = await agentServerComplete(prompt);
+  return parseJson<LeadInterpretation>(text);
+}
+
+function buildLeadFields(lead: LeadInput): string[] {
   const currentYear = new Date().getFullYear();
   const fields: string[] = [];
 
@@ -87,7 +113,6 @@ function buildLeadInterpretationPrompt(lead: Parameters<typeof interpretLead>[0]
     fields.push(`Mailing Address (owner): ${lead.mailing_address}`);
   }
 
-  // Include useful raw_payload fields if present
   if (lead.raw_payload && typeof lead.raw_payload === 'object') {
     const raw = lead.raw_payload as Record<string, unknown>;
     const interesting = [
@@ -100,36 +125,74 @@ function buildLeadInterpretationPrompt(lead: Parameters<typeof interpretLead>[0]
     }
   }
 
-  return `You are a commercial real estate intelligence analyst specializing in distressed property leads in Kentucky.
+  return fields;
+}
 
-Analyze the following lead and return a JSON object with your assessment. Focus on:
-1. Whether the owner is an LLC, individual, trust, or corporate entity (detect from naming patterns: "LLC", "Inc", "Corp", "Holdings", "Properties", "Enterprises", trust language, etc.)
-2. Owner-operator likelihood — an LLC with a business-name suggests owner-operator; a "Holdings" LLC or individual with mismatched mailing address suggests passive investor
-3. Industry/business type operating at the property (infer from company name, property type, building size, zoning)
-4. Years in business estimate — use year_built, case filing dates, or company name patterns as signals
-5. Lead opportunity potential: hot = motivated seller with clear distress + owner-operator; warm = some signals; cold = unclear or passive investor
+function buildLeadInterpretationPrompt(lead: LeadInput, context?: InterpretContext): string {
+  const fields = buildLeadFields(lead);
+  const researchBlock = context?.searchResults?.answer
+    ? `WEB RESEARCH SUMMARY:\n${context.searchResults.answer}\n\nSOURCES:\n${
+        context.searchResults.results.map(r => `- ${r.title}: ${r.url}\n  ${r.snippet}`).join('\n') || 'none'
+      }\n\n`
+    : '';
+
+  const mapsBlock = context?.mapsEntity
+    ? `GOOGLE MAPS ENTITY:\n${JSON.stringify(context.mapsEntity, null, 2)}\n\n`
+    : '';
+
+  const useMaScores = isGeminiCliAvailable() || Boolean(context?.searchResults);
+
+  const scoreFields = useMaScores
+    ? `
+  "production_fit": 0,
+  "owner_operator_signal": 0,
+  "sale_leaseback_fit": 0,
+  "nnn_fit": 0,
+  "qpp_fit": 0,
+  "confidence": 0,
+  "score_rationale": {
+    "production_fit": "string",
+    "owner_operator_signal": "string",
+    "sale_leaseback_fit": "string",
+    "nnn_fit": "string",
+    "qpp_fit": "string"
+  },`
+    : '';
+
+  const scoreInstructions = useMaScores
+    ? `
+Also score 0-5 (0=none, 5=strong, default 3 if thin evidence):
+- production_fit: manufacturing/processing/industrial ops at site (not pure retail/office)
+- owner_operator_signal: owner likely operates business on-site
+- sale_leaseback_fit: distress/maturity/capital needs favor SLB
+- nnn_fit: single-tenant, clear use, long-term occupancy
+- qpp_fit: fit for qualified purchaser / direct buyer program
+- confidence: evidence completeness
+
+Use Google Search in your tools when web research summary is missing or thin.`
+    : '';
+
+  return `You are a commercial real estate origination analyst for Central Kentucky owner-operators (manufacturing, food processing, industrial services). Target sale-leaseback (SLB), NNN, and qualified purchaser program (QPP) opportunities.
+
+Analyze the lead. Focus on owner entity type, owner-operator likelihood, industry, years in business, and lead potential (hot/warm/cold).${scoreInstructions}
 
 Lead Data:
 ${fields.join('\n')}
 
-Return ONLY a JSON object (no markdown fences, no explanation text before or after):
+${researchBlock}${mapsBlock}Return ONLY a JSON object (no markdown fences):
 {
   "owner_type": "LLC",
   "owner_operator_likelihood": "high",
-  "likely_industry": "Auto Repair",
-  "business_category": "Independent Auto Service Shop",
-  "years_in_business_estimate": 22,
-  "years_in_business_basis": "Building built in 2003, likely in operation since then",
+  "likely_industry": "string",
+  "business_category": "string",
+  "years_in_business_estimate": null,
+  "years_in_business_basis": "string",
   "lead_potential": "hot",
-  "opportunity_summary": "An LLC-owned auto repair shop facing foreclosure proceedings. Owner-operator pattern suggests the business owner also owns the real estate — a classic distressed NNN opportunity with motivated seller dynamics.",
-  "key_signals": ["LLC name matches trade name pattern", "Probate case filed 2024", "Building built 2003 = aging structure", "Owner mailing = property address (occupant-owner)"],
-  "contact_strategy": "Direct mail to the LLC registered agent address. Lead with sale-leaseback framing — owner keeps business running while unlocking equity.",
+  "opportunity_summary": "string",
+  "key_signals": ["string"],
+  "contact_strategy": "string",${scoreFields}
   "interpreted_at": "${new Date().toISOString()}"
 }`;
-}
-
-function parseInterpretation(raw: string): LeadInterpretation {
-  return parseJson<LeadInterpretation>(raw);
 }
 
 // ── SLB Thesis ───────────────────────────────────────────────────────────────
@@ -147,64 +210,29 @@ export interface SlbThesis {
   researched_at: string;
 }
 
-import type { LeadSearchResults } from './search.js';
-
 export async function generateSlbThesis(
-  lead: {
-    owner_name?: string | null;
-    property_address?: string | null;
-    city?: string | null;
-    state?: string | null;
-    jurisdiction?: string | null;
-    lead_type?: string | null;
-    building_sqft?: number | null;
-    unit_count?: number | null;
-    year_built?: number | null;
-    estimated_value?: number | null;
-    case_id?: string | null;
-    case_filed_date?: string | null;
-  },
+  lead: LeadInput,
   searchResults: LeadSearchResults,
-  existingInterpretation?: {
-    owner_type?: string;
-    owner_operator_likelihood?: string;
-    likely_industry?: string;
-    business_category?: string;
-    years_in_business_estimate?: number | null;
-    opportunity_summary?: string;
-  } | null
+  existingInterpretation?: Partial<LeadInterpretation> | null
 ): Promise<SlbThesis> {
+  if (isGeminiCliAvailable()) {
+    const prompt = buildSlbPrompt(lead, searchResults, existingInterpretation);
+    const raw = runGeminiPrompt(prompt, { timeoutMs: 420000 });
+    return parseJsonWithRepair<SlbThesis>(raw);
+  }
+
   const apiKey = process.env.AGENT_SERVER_API_KEY;
   if (!apiKey) throw new Error('AGENT_SERVER_API_KEY not set');
 
   const prompt = buildSlbPrompt(lead, searchResults, existingInterpretation);
-
-  const response = await fetch(`${AGENT_SERVER_URL}/complete`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({ prompt }),
-  });
-
-  if (!response.ok) {
-    const err = await response.text();
-    throw new Error(`Agent server error: ${response.status} — ${err}`);
-  }
-
-  const data = await response.json() as { text: string; returncode: number; stderr: string };
-  if (data.returncode !== 0) {
-    throw new Error(`Claude CLI error (rc=${data.returncode}): ${data.stderr}`);
-  }
-
-  return parseJson<SlbThesis>(data.text);
+  const text = await agentServerComplete(prompt);
+  return parseJson<SlbThesis>(text);
 }
 
 function buildSlbPrompt(
-  lead: Parameters<typeof generateSlbThesis>[0],
+  lead: LeadInput,
   search: LeadSearchResults,
-  interp: Parameters<typeof generateSlbThesis>[2]
+  interp: Partial<LeadInterpretation> | null | undefined
 ): string {
   const currentYear = new Date().getFullYear();
   const fields: string[] = [];
@@ -222,10 +250,10 @@ function buildSlbPrompt(
 
   const interpBlock = interp ? [
     `Owner Type: ${interp.owner_type || 'unknown'}`,
-    `Owner-Operator Likelihood: ${interp.owner_operator_likelihood || 'unknown'}`,
+    `Owner-Operator: ${interp.owner_operator_likelihood || 'unknown'}`,
     `Industry: ${interp.likely_industry || 'unknown'}`,
-    `Business Category: ${interp.business_category || 'unknown'}`,
-    interp.years_in_business_estimate ? `Est. Years in Business: ${interp.years_in_business_estimate}` : '',
+    interp.production_fit != null ? `production_fit: ${interp.production_fit}/5` : '',
+    interp.sale_leaseback_fit != null ? `sale_leaseback_fit: ${interp.sale_leaseback_fit}/5` : '',
     interp.opportunity_summary ? `Prior Analysis: ${interp.opportunity_summary}` : '',
   ].filter(Boolean).join('\n') : 'No prior analysis available.';
 
@@ -233,17 +261,17 @@ function buildSlbPrompt(
     ? search.results.map(r => `- [${r.title}](${r.url})\n  ${r.snippet}`).join('\n\n')
     : 'No web results found.';
 
-  const answerBlock = search.answer
-    ? `Web Research Summary:\n${search.answer}\n\n`
+  const answerBlock = search.answer ? `Web Research Summary:\n${search.answer}\n\n` : '';
+
+  const searchHint = isGeminiCliAvailable()
+    ? 'Use Google Search to verify or expand findings if results are thin.\n\n'
     : '';
 
-  return `You are a sale-leaseback (SLB) investment origination specialist focused on owner-occupied commercial real estate in Kentucky.
+  return `You are a sale-leaseback (SLB) investment origination specialist for owner-occupied commercial real estate in Kentucky.
 
-Your job: Given research on a distressed property owner, write a compelling hypothetical SLB thesis explaining WHY this specific owner might be willing to entertain a sale-leaseback right now.
+Write a compelling SLB thesis: WHY this owner might entertain a sale-leaseback now (unlock equity, debt relief, estate planning, distress, etc.).
 
-A sale-leaseback = the owner sells their building to an investor and immediately signs a long-term lease to stay and continue operating. Key motivations: unlock equity, improve balance sheet, eliminate debt, fund growth, avoid bankruptcy, estate planning, etc.
-
-LEAD DATA:
+${searchHint}LEAD DATA:
 ${fields.join('\n')}
 
 AI ANALYSIS:
@@ -252,19 +280,42 @@ ${interpBlock}
 ${answerBlock}WEB RESEARCH RESULTS:
 ${searchBlock}
 
-Based on ALL of the above, return ONLY a JSON object (no markdown, no preamble):
+Return ONLY a JSON object (no markdown):
 {
-  "intro": "3-4 sentence compelling narrative intro. Explain who this owner is, what situation they're in, and the core SLB opportunity. Be specific to this lead — reference actual signals found in the research.",
-  "motivation_factors": ["array of 4-6 specific, evidence-based reasons this owner might entertain a SLB. Reference news, business age, industry trends, building age, financial distress signals, etc."],
-  "years_at_location_estimate": null or integer,
-  "years_at_location_basis": "how you estimated years at this specific location — cite web results if found",
-  "industry_trend_context": "1-2 sentences on why owners in THIS specific industry tend to be receptive to SLBs. Reference industry-specific cash flow pressures, capital intensity, or recent sector trends.",
-  "building_case": "1-2 sentences on why the building itself (age, size, type, condition signals) supports a SLB conversation.",
-  "news_signals": [{"headline": "brief headline", "url": "source url or empty string", "relevance": "why this matters for SLB"}],
-  "motivation_score": "high" | "medium" | "low",
-  "key_conversation_opener": "The single best first sentence to use when calling or writing this owner. Specific, relevant, not generic.",
+  "intro": "3-4 sentence narrative",
+  "motivation_factors": ["4-6 evidence-based reasons"],
+  "years_at_location_estimate": null,
+  "years_at_location_basis": "string",
+  "industry_trend_context": "string",
+  "building_case": "string",
+  "news_signals": [{"headline": "string", "url": "string", "relevance": "string"}],
+  "motivation_score": "high",
+  "key_conversation_opener": "string",
   "researched_at": "${new Date().toISOString()}"
 }`;
+}
+
+async function agentServerComplete(prompt: string): Promise<string> {
+  const apiKey = process.env.AGENT_SERVER_API_KEY!;
+  const response = await fetch(`${AGENT_SERVER_URL}/complete`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({ prompt }),
+  });
+
+  if (!response.ok) {
+    const err = await response.text();
+    throw new Error(`Agent server error: ${response.status} — ${err}`);
+  }
+
+  const data = await response.json() as { text: string; returncode: number; stderr: string };
+  if (data.returncode !== 0) {
+    throw new Error(`Claude CLI error (rc=${data.returncode}): ${data.stderr}`);
+  }
+  return data.text;
 }
 
 function parseJson<T>(raw: string): T {

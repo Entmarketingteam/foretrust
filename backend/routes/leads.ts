@@ -3,9 +3,12 @@
 import { Router, Request, Response } from 'express';
 import * as db from '../services/database.js';
 import { triggerScraperRun, triggerFullPipeline } from '../services/scraper.js';
-import { interpretLead, generateSlbThesis } from '../services/claude.js';
+import { interpretLead, generateSlbThesis, type LeadInterpretation } from '../services/claude.js';
 import { researchLead } from '../services/search.js';
 import { enrichLeadContact } from '../services/contact.js';
+import { resolveMapsPlace } from '../services/maps.js';
+import { qualifiesForReview } from '../services/scoring.js';
+import { isGeminiCliAvailable } from '../services/gemini-cli.js';
 import { parseNonNegativeInt } from '../utils/params.js';
 
 const router = Router();
@@ -210,7 +213,11 @@ router.post('/:leadId/slb-research', async (req: Request, res: Response) => {
       } : null,
     });
 
-    const thesis = await generateSlbThesis(lead, searchResults, lead.ai_interpretation || null);
+    const thesis = await generateSlbThesis(
+      lead,
+      searchResults,
+      (lead.ai_interpretation as LeadInterpretation | null) || null
+    );
     await db.updateLeadSlbThesis(leadId, thesis);
 
     const updated = { ...lead, slb_thesis: thesis };
@@ -225,7 +232,7 @@ router.post('/:leadId/slb-research', async (req: Request, res: Response) => {
   }
 });
 
-// Interpret a lead with Claude AI (owner type, industry, opportunity summary)
+// Interpret a lead — Gemini Ultra CLI + Maps (fallback: Claude via agent-server)
 router.post('/:leadId/interpret', async (req: Request, res: Response) => {
   try {
     const { leadId } = req.params;
@@ -234,12 +241,54 @@ router.post('/:leadId/interpret', async (req: Request, res: Response) => {
       return res.status(404).json({ success: false, error: 'Lead not found' });
     }
 
-    const interpretation = await interpretLead(lead);
+    let searchResults;
+    if (isGeminiCliAvailable()) {
+      searchResults = await researchLead({
+        owner_name: lead.owner_name,
+        property_address: lead.property_address,
+        city: lead.city,
+        state: lead.state,
+        jurisdiction: lead.jurisdiction,
+        lead_type: lead.lead_type,
+        building_sqft: lead.building_sqft,
+        year_built: lead.year_built,
+        ai_interpretation: lead.ai_interpretation
+          ? {
+              likely_industry: lead.ai_interpretation.likely_industry,
+              business_category: lead.ai_interpretation.business_category,
+            }
+          : null,
+      });
+    }
+
+    const mapsEntity = await resolveMapsPlace({
+      owner_name: lead.owner_name,
+      property_address: lead.property_address,
+      city: lead.city,
+      state: lead.state,
+      jurisdiction: lead.jurisdiction,
+    }).catch((e) => {
+      console.warn('Maps resolve failed:', e);
+      return null;
+    });
+
+    const interpretation = await interpretLead(lead, {
+      searchResults,
+      mapsEntity,
+    });
     await db.updateLeadInterpretation(leadId, interpretation);
 
-    // Merge interpretation back into the lead object for the response
     const updated = { ...lead, ai_interpretation: interpretation };
-    res.json({ success: true, data: updated });
+    res.json({
+      success: true,
+      data: updated,
+      meta: {
+        ai_provider: interpretation.ai_provider || (isGeminiCliAvailable() ? 'gemini-cli' : 'claude'),
+        search_source: searchResults?.source,
+        maps_resolved: Boolean(mapsEntity),
+        qualifies_for_review: qualifiesForReview(interpretation),
+      },
+    });
   } catch (error) {
     console.error('Error interpreting lead:', error);
     res.status(500).json({ success: false, error: 'Failed to interpret lead' });
