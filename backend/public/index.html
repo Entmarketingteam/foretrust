@@ -187,6 +187,12 @@
                 <svg x-show="!batchInterpreting" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/></svg>
                 <span class="hidden sm:inline" x-text="batchInterpreting ? 'Analyzing...' : 'Analyze All'"></span>
               </button>
+              <button @click="triggerLeadPipeline()" :disabled="leadPipelineRunning"
+                      class="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-indigo-200 text-sm font-medium text-indigo-700 hover:bg-indigo-50 transition-colors disabled:opacity-50">
+                <svg x-show="leadPipelineRunning" class="w-4 h-4 spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+                <svg x-show="!leadPipelineRunning" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+                <span class="hidden sm:inline" x-text="leadPipelineRunning ? 'Pipeline...' : 'Full Pipeline'"></span>
+              </button>
               <button @click="showScrapeModal = true" class="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 transition-colors">
                 <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"/><path stroke-linecap="round" stroke-linejoin="round" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
                 <span class="hidden sm:inline">Run Scraper</span>
@@ -557,7 +563,7 @@
       <div class="px-6 py-5 border-b border-slate-100 flex items-center justify-between">
         <div>
           <h2 class="text-lg font-bold text-slate-900">Run Scraper</h2>
-          <p class="text-sm text-slate-500 mt-0.5">Select a data source to import leads from</p>
+          <p class="text-sm text-slate-500 mt-0.5">Runs in the background (1–5 min). Watch Scraper Runs for results.</p>
         </div>
         <button @click="showScrapeModal = false" class="text-slate-400 hover:text-slate-600 transition-colors">
           <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
@@ -1543,6 +1549,7 @@
         // Scrape form
         scrapeForm: { source_key: '' },
         scrapeRunning: false,
+        leadPipelineRunning: false,
 
         // New deal form
         newDealForm: { name: '', sourceType: 'manual', sourceUrl: '' },
@@ -1660,29 +1667,95 @@
           } catch (e) {}
         },
 
+        async triggerLeadPipeline() {
+          if (this.leadPipelineRunning) return;
+          this.leadPipelineRunning = true;
+          this.toast('Full KY pipeline started — all sources, 10–30 min. Check Scraper Runs.', 'info');
+          try {
+            const res = await fetch(`${API}/leads/pipeline`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ limit_per_source: 100 }),
+            });
+            const json = await res.json();
+            if (json.success) {
+              this.toast(json.data?.message || 'Pipeline queued', 'success');
+              if (this.currentPage === 'runs') this.loadRuns();
+            } else {
+              this.toast(json.error || 'Pipeline failed to start', 'error');
+            }
+          } catch (e) {
+            this.toast('Pipeline request failed', 'error');
+          } finally {
+            this.leadPipelineRunning = false;
+          }
+        },
+
+        async waitForScrapeRun(sourceKey, startedAfterMs) {
+          const maxAttempts = 36; // ~6 min at 10s intervals
+          for (let i = 0; i < maxAttempts; i++) {
+            await new Promise(r => setTimeout(r, i === 0 ? 3000 : 10000));
+            const res = await fetch(`${API}/leads/runs?limit=10`);
+            const json = await res.json();
+            if (!json.success) continue;
+            const run = (json.data || []).find(r => {
+              if (r.source_key !== sourceKey) return false;
+              const started = new Date(r.started_at).getTime();
+              return started >= startedAfterMs - 5000 && r.finished_at;
+            });
+            if (run) return run;
+          }
+          return null;
+        },
+
         async triggerScrape() {
           if (!this.scrapeForm.source_key) return;
+          const sourceKey = this.scrapeForm.source_key;
+          const startedAfter = Date.now();
           this.scrapeRunning = true;
           try {
             const res = await fetch(`${API}/leads/scrape`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ source_key: this.scrapeForm.source_key })
+              body: JSON.stringify({ source_key: sourceKey })
             });
             const json = await res.json();
-            if (json.success) {
-              const data = json.data || {};
-              const newCount = data.new_leads || data.records_new || 0;
-              const total = data.total_found || data.records_found || 0;
-              this.toast(`Scrape complete — ${newCount} new leads imported (${total} total found)`, 'success');
+            if (!json.success) {
+              this.toast(json.error || 'Scrape failed.', 'error');
+              return;
+            }
+
+            const data = json.data || {};
+            if (data.status === 'accepted') {
+              this.toast(`Scrape started (${sourceKey}) — waiting for results…`, 'info');
               this.showScrapeModal = false;
               this.scrapeForm.source_key = '';
-              if (this.currentPage === 'leads') this.loadLeads();
               if (this.currentPage === 'runs') this.loadRuns();
-              this.loadSidebarStats();
+
+              const run = await this.waitForScrapeRun(sourceKey, startedAfter);
+              if (run) {
+                if (run.status === 'error') {
+                  this.toast(`Scrape failed: ${run.error_message || sourceKey}`, 'error');
+                } else {
+                  const newCount = run.records_new ?? 0;
+                  const total = run.records_found ?? 0;
+                  const dupNote = total > 0 && newCount === 0 ? ' (all duplicates — already in DB)' : '';
+                  this.toast(`Scrape done — ${newCount} new, ${total} found${dupNote}`, newCount > 0 ? 'success' : 'info');
+                }
+              } else {
+                this.toast('Scrape still running — check Scraper Runs tab', 'info');
+              }
             } else {
-              this.toast(json.error || 'Scrape failed.', 'error');
+              const newCount = data.new_leads || data.records_new || 0;
+              const total = data.total_found || data.records_found || 0;
+              this.toast(`Scrape complete — ${newCount} new leads (${total} found)`, 'success');
+              this.showScrapeModal = false;
+              this.scrapeForm.source_key = '';
             }
+
+            if (this.currentPage === 'leads') this.loadLeads();
+            if (this.currentPage === 'runs') this.loadRuns();
+            this.loadSidebarStats();
           } catch (e) {
             this.toast('Failed to trigger scrape.', 'error');
           } finally {

@@ -1065,6 +1065,7 @@ export async function listLeads(filters: {
   let query = client
     .from('ft_leads')
     .select('*')
+    .order('scraped_at', { ascending: false, nullsFirst: false })
     .order('hot_score', { ascending: false, nullsFirst: false });
 
   if (filters.vertical) query = query.eq('vertical', filters.vertical);
