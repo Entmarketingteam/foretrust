@@ -187,6 +187,12 @@
                 <svg x-show="!batchInterpreting" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/></svg>
                 <span class="hidden sm:inline" x-text="batchInterpreting ? 'Analyzing...' : 'Analyze All'"></span>
               </button>
+              <button @click="triggerPreMlsLeadPipeline()" :disabled="preMlsPipelineRunning"
+                      class="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-amber-200 text-sm font-medium text-amber-800 hover:bg-amber-50 transition-colors disabled:opacity-50">
+                <svg x-show="preMlsPipelineRunning" class="w-4 h-4 spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+                <svg x-show="!preMlsPipelineRunning" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                <span class="hidden sm:inline" x-text="preMlsPipelineRunning ? 'Pre-MLS...' : 'Pre-MLS Pipeline'"></span>
+              </button>
               <button @click="triggerLeadPipeline()" :disabled="leadPipelineRunning"
                       class="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-indigo-200 text-sm font-medium text-indigo-700 hover:bg-indigo-50 transition-colors disabled:opacity-50">
                 <svg x-show="leadPipelineRunning" class="w-4 h-4 spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
@@ -226,7 +232,7 @@
         <div class="bg-white border-b border-slate-200 px-4 md:px-8 py-3 space-y-2">
           <p class="text-xs text-amber-800 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
             <strong>Filters only hide/show leads already in the database.</strong>
-            To import new leads, use <strong>Run Scraper</strong> or <strong>Full Pipeline</strong> (not Type/County here).
+            To import new leads, use <strong>Run Scraper</strong>, <strong>Pre-MLS Pipeline</strong>, or <strong>Full Pipeline</strong> (not Type/County here).
           </p>
           <div class="flex flex-wrap gap-y-2 gap-x-3 items-center">
             <div class="flex items-center gap-2">
@@ -603,7 +609,8 @@
             <option value="zillow_public">Zillow — pre-foreclosure (experimental)</option>
             <option value="legal_notices">Legal notices — foreclosure, probate (often 0)</option>
             <option value="scott_pva">Scott County PVA</option>
-            <option value="oldham_pva">Oldham County PVA (DNS broken)</option>
+            <option value="oldham_pva">Oldham County PVA</option>
+            <option value="ecclix_batch">eCCLIX Day Pass — deeds/wills (needs Doppler creds)</option>
           </select>
         </div>
 
@@ -1571,6 +1578,7 @@
         scrapeForm: { source_key: '' },
         scrapeRunning: false,
         leadPipelineRunning: false,
+        preMlsPipelineRunning: false,
 
         // New deal form
         newDealForm: { name: '', sourceType: 'manual', sourceUrl: '' },
@@ -1688,6 +1696,34 @@
           } catch (e) {}
         },
 
+        async triggerPreMlsLeadPipeline() {
+          if (this.preMlsPipelineRunning) return;
+          this.preMlsPipelineRunning = true;
+          this.toast('Pre-MLS pipeline started — notices & court signals first. Check Scraper Runs.', 'info');
+          try {
+            const res = await fetch(`${API}/leads/pipeline/pre-mls`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                limit_per_source: 100,
+                gis_limit: 50,
+                party_search_limit: 30,
+              }),
+            });
+            const json = await res.json();
+            if (json.success) {
+              this.toast(json.data?.message || 'Pre-MLS pipeline queued', 'success');
+              if (this.currentPage === 'runs') this.loadRuns();
+            } else {
+              this.toast(json.error || 'Pre-MLS pipeline failed to start', 'error');
+            }
+          } catch (e) {
+            this.toast('Pre-MLS pipeline request failed', 'error');
+          } finally {
+            this.preMlsPipelineRunning = false;
+          }
+        },
+
         async triggerLeadPipeline() {
           if (this.leadPipelineRunning) return;
           this.leadPipelineRunning = true;
@@ -1738,7 +1774,17 @@
             const res = await fetch(`${API}/leads/scrape`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ source_key: sourceKey })
+              body: JSON.stringify({
+                source_key: sourceKey,
+                params: sourceKey === 'ecclix_batch'
+                  ? {
+                      mode: 'wholesale',
+                      download_documents: true,
+                      days_back: 30,
+                      max_documents_per_county: 20
+                    }
+                  : {}
+              })
             });
             const json = await res.json();
             if (!json.success) {
@@ -2211,7 +2257,8 @@
             zillow_public: 'Try for pre-foreclosure. Heavy anti-bot; may return 0.',
             legal_notices: 'Newspaper/RSS notices → foreclosure, pre_foreclosure, probate when matches found.',
             scott_pva: 'Scott PVA — often 0 new rows.',
-            oldham_pva: 'Broken: oldhamcountypva.com DNS fails.',
+            oldham_pva: 'Oldham PVA via qPublic / GIS.',
+            ecclix_batch: '🔑 Day pass (wholesale): last 30 days of DEED/MORTGAGE/WILL per county — downloads PDFs, grantor/grantee/legal → ft_clerk_documents.',
           };
           return map[key] || '';
         },

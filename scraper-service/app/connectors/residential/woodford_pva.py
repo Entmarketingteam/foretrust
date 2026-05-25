@@ -1,23 +1,16 @@
-"""Woodford County PVA connector (Versailles, KY).
-
-Woodford County seat is Versailles. High-value horse farm country with
-significant probate and estate activity. Strong target for high-value residential.
-
-NOTE: Verify URL at woodfordpva.com or woodford.ky.gov/pva before production.
-"""
+"""Woodford County PVA (Versailles) — Schneider qPublic."""
 
 from __future__ import annotations
 
 from app.connectors.registry import register
-from app.connectors.residential.base_pva import BasePVAConnector
+from app.connectors.residential.qpublic_pva import QPublicPVAConnector
 
 
 @register
-class WoodfordPVAConnector(BasePVAConnector):
+class WoodfordPVAConnector(QPublicPVAConnector):
     source_key = "woodford_pva"
     jurisdiction = "KY-Woodford"
-    # VERIFY_URL: Woodford County PVA — confirm at https://woodfordpva.com
-    base_url = "https://woodfordpva.com"
+    qpublic_app = "WoodfordCountyKY"
     county_name = "Woodford"
     city_name = "VERSAILLES"
     default_schedule = "0 8 * * *"

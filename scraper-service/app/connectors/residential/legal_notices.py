@@ -19,6 +19,10 @@ from app.connectors.registry import register
 from app.models import Lead, LeadType, RawRecord, Vertical
 from app.browser import create_context, human_delay, safe_goto
 from app.config import settings
+from app.pipeline.notice_parse import (
+    build_courtnet_search_hint,
+    extract_county_from_text,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -184,20 +188,37 @@ class LegalNoticesConnector(BaseConnector):
         else:
             lead_type = LeadType.ESTATE
 
-        # Try to extract name and address from the text
-        text = data.get("text") or data.get("summary") or data.get("title") or ""
-        owner_name = self._extract_name(text)
-        address = self._extract_address(text)
+        title = data.get("title") or ""
+        summary = data.get("summary") or ""
+        body = data.get("text") or ""
+        combined_text = " ".join(part for part in (title, summary, body) if part)
+
+        owner_name = self._extract_name(combined_text)
+        address = self._extract_address(combined_text)
+        county = extract_county_from_text(combined_text)
+        jurisdiction = f"KY-{county}" if county else "KY-Multi"
+
+        raw_payload = dict(data)
+        if county:
+            raw_payload["detected_county"] = county
+
+        courtnet_search = build_courtnet_search_hint(
+            county=county,
+            owner_name=owner_name,
+            lead_type=lead_type,
+        )
+        if courtnet_search:
+            raw_payload["courtnet_search"] = courtnet_search
 
         return Lead(
             source_key=self.source_key,
             vertical=Vertical.RESIDENTIAL,
-            jurisdiction="KY-Multi",
+            jurisdiction=jurisdiction,
             lead_type=lead_type,
             owner_name=owner_name,
             property_address=address,
             state="KY",
-            raw_payload=data,
+            raw_payload=raw_payload,
         )
 
     @staticmethod

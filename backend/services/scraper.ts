@@ -88,6 +88,49 @@ interface PipelineResult {
   params: Record<string, unknown>;
 }
 
+export async function triggerPreMlsPipeline(
+  params: {
+    counties?: string[];
+    limit_per_source?: number;
+    gis_limit?: number;
+    party_search_limit?: number;
+  } = {}
+): Promise<PipelineResult> {
+  const url = `${SCRAPER_SERVICE_URL}/pipeline/pre-mls`;
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+  if (SCRAPER_SHARED_TOKEN) {
+    headers['Authorization'] = `Bearer ${SCRAPER_SHARED_TOKEN}`;
+  }
+
+  return withRetry(async () => {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), SCRAPER_TIMEOUT_MS);
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(params),
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timeout);
+    }
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      if (response.status < 500) {
+        throw new NonRetryableError(`Pre-MLS pipeline error (${response.status}): ${errorText}`);
+      }
+      throw new Error(`Pre-MLS pipeline error (${response.status}): ${errorText}`);
+    }
+
+    return response.json() as Promise<PipelineResult>;
+  });
+}
+
 export async function triggerFullPipeline(
   params: { counties?: string[]; limit_per_source?: number } = {}
 ): Promise<PipelineResult> {

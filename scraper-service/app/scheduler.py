@@ -29,8 +29,12 @@ async def run_connector_job(source_key: str, params: dict | None = None) -> None
     from app.storage.sheets_exporter import export_leads_sheets
 
     connector = get_connector(source_key)
-    proxy_session = proxy_manager.create_session()
     params = params or {}
+    proxy_session = (
+        None
+        if params.get("no_proxy")
+        else proxy_manager.create_session()
+    )
     leads: list = []
     run = None
 

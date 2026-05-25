@@ -14,6 +14,8 @@ __pycache__/
 # Secrets - never commit these
 google-service-account.json
 .doppler/
+.google-alerts-browser-profile/
+.venv-google-alerts/
 
 # OS
 .DS_Store

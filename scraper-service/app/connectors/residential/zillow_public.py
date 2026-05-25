@@ -37,8 +37,15 @@ class ZillowPublicConnector(BaseConnector):
         records: list[RawRecord] = []
 
         if not addresses:
-            logger.info("[zillow] No addresses provided; zillow is enrichment-only")
-            return records
+            # Optional: pull recent lead addresses from Supabase when run from UI without params
+            addresses = await self._default_addresses_from_db(limit)
+            if not addresses:
+                logger.warning(
+                    "[zillow] No addresses — pass params.addresses or import leads first. "
+                    "Zillow cannot discover leads without property addresses."
+                )
+                return records
+            logger.info("[zillow] Using %d addresses from recent ft_leads", len(addresses))
 
         async with create_context(browser) as ctx:
             page = await ctx.new_page()
@@ -53,6 +60,32 @@ class ZillowPublicConnector(BaseConnector):
                 await human_delay(3.0, 6.0)
 
         return records
+
+    async def _default_addresses_from_db(self, limit: int) -> list[str]:
+        """Use recent lead property addresses when UI triggers zillow with no params."""
+        try:
+            from app.storage.supabase_client import _get_client
+
+            client = _get_client()
+            if not client:
+                return []
+            resp = (
+                client.table("ft_leads")
+                .select("property_address")
+                .not_.is_("property_address", "null")
+                .order("scraped_at", desc=True)
+                .limit(limit)
+                .execute()
+            )
+            addrs = []
+            for row in resp.data or []:
+                addr = (row.get("property_address") or "").strip()
+                if addr and addr not in addrs:
+                    addrs.append(addr)
+            return addrs
+        except Exception as exc:
+            logger.warning("[zillow] Could not load addresses from Supabase: %s", exc)
+            return []
 
     async def _lookup_address(self, page, address: str) -> RawRecord | None:
         """Search Zillow for an address and extract public records data."""

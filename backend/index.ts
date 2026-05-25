@@ -41,6 +41,8 @@ router.get('/', (_req, res) => {
       // Lead acquisition (scraper service)
       'GET /api/foretrust/leads': 'List scraped leads (filters: vertical, source_key, jurisdiction, lead_type, hot_score_min)',
       'GET /api/foretrust/leads/:leadId': 'Get single lead detail',
+      'POST /api/foretrust/leads/pipeline': 'Trigger full KY pipeline (proxies scraper POST /pipeline/full)',
+      'POST /api/foretrust/leads/pipeline/pre-mls': 'Trigger pre-MLS pipeline (proxies scraper POST /pipeline/pre-mls)',
       'POST /api/foretrust/leads/scrape': 'Trigger a scraper run (body: {source_key, params})',
       'POST /api/foretrust/leads/:leadId/promote': 'Promote lead to a deal',
       'GET /api/foretrust/leads/runs': 'Recent scraper run audit log',

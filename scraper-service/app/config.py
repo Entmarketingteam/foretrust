@@ -31,6 +31,10 @@ class Settings(BaseSettings):
     capsolver_api_key: str = ""
     captcha_daily_budget_usd: float = 5.0
 
+    # --- KCOJ CourtNet (guest public-records account) ---
+    kcoj_username: str = ""
+    kcoj_password: str = ""
+
     # --- eCCLIX ---
     ecclix_username: str = ""
     ecclix_password: str = ""
@@ -53,6 +57,16 @@ class Settings(BaseSettings):
     # --- Browserbase cloud browser ---
     browserbase_api_key: str = ""
     browserbase_project_id: str = ""
+
+    # --- Daily digest email (Resend or SMTP) ---
+    alert_digest_to: str = ""  # comma-separated
+    alert_digest_from: str = "Foretrust Signals <signals@contractmotion.com>"
+    resend_api_key: str = ""
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_user: str = ""
+    smtp_password: str = ""
+    smtp_use_tls: bool = True
 
     # --- Internal auth ---
     scraper_shared_token: str = ""

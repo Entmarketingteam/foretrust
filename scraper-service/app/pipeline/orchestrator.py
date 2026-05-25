@@ -61,7 +61,12 @@ async def run_full_pipeline(
     browser: Browser,
     params: dict[str, Any] | None = None,
 ) -> tuple[list[Lead], dict[str, Any]]:
-    """Execute the complete free-source pipeline.
+    """Execute the complete free-source pipeline (vacancy + GIS discovery first).
+
+    Chains KCOJ → GIS → PVA → MC → delinquent tax → legal notices → cross-ref → score.
+
+    For distress-first pre-MLS signals (notices → court party search → smaller GIS),
+    use ``run_pre_mls_pipeline`` in ``pre_mls_orchestrator.py`` or POST ``/pipeline/pre-mls``.
 
     Returns (leads, run_summary) where run_summary contains counts per stage.
     Persists all leads to Supabase.

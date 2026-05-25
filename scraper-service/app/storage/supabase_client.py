@@ -7,7 +7,10 @@ Uses postgrest-py via the supabase-py SDK. Handles dedup by hash
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
+
+_LOGIN_JUNK = re.compile(r"login|password|ecclix central|walkthrough", re.I)
 
 from app.config import settings
 from app.models import Lead, SourceRun
@@ -45,6 +48,25 @@ def _get_client():
         return None
 
 
+def _lead_is_persistable(lead: Lead) -> bool:
+    from app.connectors.residential.ecclix_portal import is_junk_portal_row
+
+    owner = lead.owner_name or (lead.raw_payload or {}).get("grantor") or ""
+    addr = lead.property_address or ""
+    if is_junk_portal_row(f"{owner} {addr}", lead.raw_payload):
+        return False
+    if lead.source_key == "ecclix_batch":
+        inst = ((lead.raw_payload or {}).get("instrument_type") or "").upper()
+        if inst and _LOGIN_JUNK.search(inst):
+            return False
+        if owner and len(owner) > 200:
+            return False
+        # Instrument row needs grantor/grantee or real address
+        if not addr and not owner:
+            return False
+    return True
+
+
 async def insert_leads(leads: list[Lead]) -> int:
     """Insert leads into ft_leads, skipping duplicates by dedupe_hash.
 
@@ -57,7 +79,13 @@ async def insert_leads(leads: list[Lead]) -> int:
         logger.warning("Supabase unavailable; leads not persisted")
         return 0
 
-    rows = [_lead_to_row(lead) for lead in leads]
+    clean = [lead for lead in leads if _lead_is_persistable(lead)]
+    if len(clean) < len(leads):
+        logger.info(
+            "Supabase: dropped %d junk/unpersistable leads",
+            len(leads) - len(clean),
+        )
+    rows = [_lead_to_row(lead) for lead in clean]
     if not rows:
         return 0
 
@@ -146,25 +174,49 @@ async def list_source_runs(limit: int = 20) -> list[dict[str, Any]]:
 DEFAULT_ORG_ID = "00000000-0000-0000-0000-000000000001"
 
 
+# Match ft_leads VARCHAR limits (see supabase/migrations)
+_VARCHAR_LIMITS: dict[str, int] = {
+    "source_key": 100,
+    "jurisdiction": 100,
+    "lead_type": 50,
+    "owner_name": 255,
+    "city": 100,
+    "state": 50,
+    "postal_code": 20,
+    "parcel_number": 100,
+    "case_id": 100,
+}
+
+
+def _clip(field: str, value: Any) -> Any:
+    if value is None or field not in _VARCHAR_LIMITS:
+        return value
+    s = str(value).strip()
+    if "login.aspx" in s.lower() or ("ecclix" in s.lower() and "log in" in s.lower()):
+        return None
+    max_len = _VARCHAR_LIMITS[field]
+    return s[:max_len] if len(s) > max_len else s
+
+
 def _lead_to_row(lead: Lead) -> dict[str, Any]:
     """Convert a Lead model to a Supabase row dict."""
     return {
         "organization_id": DEFAULT_ORG_ID,
-        "source_key": lead.source_key,
+        "source_key": _clip("source_key", lead.source_key),
         "vertical": lead.vertical.value,
-        "jurisdiction": lead.jurisdiction,
-        "lead_type": lead.lead_type.value,
-        "owner_name": lead.owner_name,
+        "jurisdiction": _clip("jurisdiction", lead.jurisdiction),
+        "lead_type": _clip("lead_type", lead.lead_type.value),
+        "owner_name": _clip("owner_name", lead.owner_name),
         "mailing_address": lead.mailing_address,
         "property_address": lead.property_address,
-        "city": lead.city,
-        "state": lead.state,
-        "postal_code": lead.postal_code,
-        "parcel_number": lead.parcel_number,
+        "city": _clip("city", lead.city),
+        "state": _clip("state", lead.state),
+        "postal_code": _clip("postal_code", lead.postal_code),
+        "parcel_number": _clip("parcel_number", lead.parcel_number),
         "building_sqft": lead.building_sqft,
         "unit_count": lead.unit_count,
         "year_built": lead.year_built,
-        "case_id": lead.case_id,
+        "case_id": _clip("case_id", lead.case_id),
         "case_filed_date": lead.case_filed_date.isoformat() if lead.case_filed_date else None,
         "estimated_value": lead.estimated_value,
         "raw_payload": lead.raw_payload,

@@ -1,7 +1,11 @@
-"""Kentucky Court of Justice (KCOJ) CourtNet 2.0 connector.
+"""Kentucky Court of Justice (KCOJ) KYeCourts / CourtNet connector.
 
-Scrapes probate, estate, divorce, and foreclosure (civil) case filings
-from kcoj.kycourts.net/casesearch across configured KY counties.
+Guest public-records search: https://kcoj.kycourts.net/CourtNet/Search/Index
+(requires guest registration + login; typically 2 CAPTCHAs per session).
+
+CourtNet 2.0 uses collapsed search panels. This connector targets **Search by
+Party/Business** (county + case category + party category + name) — not the
+legacy 90-day bulk county/case-type date-range loop.
 
 Enhanced: clicks into each case to extract full detail —
   - All parties (plaintiff/defendant/respondent/petitioner) with roles
@@ -19,24 +23,49 @@ import re
 from datetime import date, timedelta
 from typing import Any
 
-from playwright.async_api import Browser
+from playwright.async_api import Browser, Page
 
 from app.connectors.base import BaseConnector
 from app.connectors.registry import register
 from app.models import Lead, LeadType, RawRecord, Vertical
-from app.browser import create_context, human_delay, human_type, safe_goto
+from app.browser import create_context, human_delay, safe_goto
 from app.captcha import detect_and_solve_captcha
+from app.config import settings
 from app.pipeline.normalize import parse_date
 
 logger = logging.getLogger(__name__)
 
 
-# KCOJ case-type prefixes → our LeadType
+# Legacy bulk dropdown labels → LeadType (bulk_legacy only)
 CASE_TYPE_MAP = {
     "P - Probate": LeadType.PROBATE,
     "D - Domestic Relations": LeadType.DIVORCE,
     "DR - Domestic Relations": LeadType.DIVORCE,
     "CI - Civil": LeadType.FORECLOSURE,
+}
+
+# CourtNet 2.0 case category dropdown values (party search)
+CASE_CATEGORY_TO_LEAD_TYPE: dict[str, LeadType] = {
+    "PROBATE": LeadType.PROBATE,
+    "CIVIL": LeadType.FORECLOSURE,
+    "DOMESTIC": LeadType.DIVORCE,
+    "DOMESTIC RELATIONS": LeadType.DIVORCE,
+    "CRIMINAL": LeadType.ESTATE,
+}
+
+LEAD_TYPE_TO_CASE_CATEGORY: dict[str, str] = {
+    "probate": "PROBATE",
+    "estate": "PROBATE",
+    "death": "PROBATE",
+    "foreclosure": "CIVIL",
+    "pre_foreclosure": "CIVIL",
+    "divorce": "DOMESTIC",
+}
+
+DEFAULT_PARTY_CATEGORY: dict[str, str] = {
+    "PROBATE": "All Parties",
+    "CIVIL": "Defendant",
+    "DOMESTIC": "Respondent",
 }
 
 # Counties to scrape by default — matches counties with GIS + PVA coverage
@@ -60,107 +89,346 @@ _ADDR_RE = re.compile(
     re.IGNORECASE,
 )
 
+_PARTY_PANEL_TRIGGERS = [
+    "button:has-text('Search by Party')",
+    "a:has-text('Search by Party')",
+    "button:has-text('Party/Business')",
+    "a:has-text('Party/Business')",
+    "[data-bs-target*='party' i]",
+    "[data-target*='party' i]",
+    "#party-search .panel-heading",
+    ".accordion-button:has-text('Party')",
+    "legend:has-text('Party')",
+]
+
 
 @register
 class KCOJCourtNetConnector(BaseConnector):
     source_key = "kcoj_courtnet"
     vertical = Vertical.RESIDENTIAL
     jurisdiction = "KY-Multi"
-    base_url = "https://kcoj.kycourts.net/kyecourts/"
+    base_url = "https://kcoj.kycourts.net"
+    login_url = "https://kcoj.kycourts.net/kyecourts/Login"
+    search_url = "https://kcoj.kycourts.net/CourtNet/Search/Index"
     default_schedule = "0 6 * * *"
     respects_robots = False  # Public court records — KRS 61.872 mandates public access
 
     async def fetch(self, browser: Browser, params: dict[str, Any]) -> list[RawRecord]:
-        counties = params.get("counties", DEFAULT_COUNTIES)
-        case_types = params.get("case_types", list(CASE_TYPE_MAP.keys()))
-        limit = params.get("limit", 50)
-        # Set False to skip per-case detail scraping (faster but less data)
-        deep_scrape = params.get("deep_scrape", True)
+        party_searches: list[dict[str, Any]] = list(params.get("party_searches") or [])
+        from_notices = bool(params.get("from_notices"))
+        bulk_legacy = bool(params.get("bulk_legacy", False))
+        limit = int(params.get("limit", 50))
+        deep_scrape = bool(params.get("deep_scrape", True))
+
+        if not party_searches and not bulk_legacy:
+            if not from_notices:
+                logger.warning(
+                    "[kcoj] No party_searches configured and bulk_legacy=false — "
+                    "skipping blind county/case_type loop (CourtNet 2.0 party search only)"
+                )
+            return []
 
         records: list[RawRecord] = []
 
         async with create_context(browser) as ctx:
             page = await ctx.new_page()
+            await self._ensure_session(page)
 
-            for county in counties:
-                for case_type in case_types:
-                    try:
-                        batch = await self._search_county_case_type(
-                            page, county, case_type, limit, deep_scrape
-                        )
-                        records.extend(batch)
-                    except Exception as exc:
-                        logger.warning(
-                            "[kcoj] Failed %s/%s: %s", county, case_type, exc
-                        )
-                    await human_delay(3.0, 6.0)
+            for search in party_searches:
+                try:
+                    batch = await self._party_search(page, search, limit, deep_scrape)
+                    records.extend(batch)
+                except Exception as exc:
+                    logger.warning("[kcoj] Party search failed %r: %s", search, exc)
+                await human_delay(3.0, 6.0)
+
+            if bulk_legacy:
+                counties = params.get("counties", DEFAULT_COUNTIES)
+                case_types = params.get("case_types", list(CASE_TYPE_MAP.keys()))
+                for county in counties:
+                    for case_type in case_types:
+                        try:
+                            batch = await self._search_county_case_type(
+                                page, county, case_type, limit, deep_scrape
+                            )
+                            records.extend(batch)
+                        except Exception as exc:
+                            logger.warning(
+                                "[kcoj] Legacy bulk failed %s/%s: %s",
+                                county,
+                                case_type,
+                                exc,
+                            )
+                        await human_delay(3.0, 6.0)
 
         return records
 
-    async def _search_county_case_type(
-        self, page, county: str, case_type: str, limit: int, deep_scrape: bool
-    ) -> list[RawRecord]:
-        # Legacy path was /casesearch (404 as of 2026); CourtNet 3 lives under /kyecourts/
-        search_urls = [
-            f"{self.base_url.rstrip('/')}/casesearch",
-            self.base_url,
-            "https://kcoj.kycourts.net/casesearch",
-        ]
-        loaded = False
-        for url in search_urls:
+    @staticmethod
+    def _infer_case_category(search: dict[str, Any]) -> str:
+        explicit = search.get("case_category")
+        if explicit:
+            return str(explicit).strip().upper()
+
+        lead_type = search.get("lead_type", "")
+        if isinstance(lead_type, LeadType):
+            lead_type = lead_type.value
+        key = str(lead_type).strip().lower()
+        return LEAD_TYPE_TO_CASE_CATEGORY.get(key, "CIVIL")
+
+    @staticmethod
+    def _infer_party_category(search: dict[str, Any], case_category: str) -> str | None:
+        if search.get("party_category"):
+            return str(search["party_category"]).strip()
+        return DEFAULT_PARTY_CATEGORY.get(case_category.upper())
+
+    async def _solve_captchas(self, page: Page, passes: int = 2) -> None:
+        """CourtNet guest flow often shows CAPTCHA on login and again on search."""
+        for _ in range(passes):
             try:
-                await safe_goto(page, url)
-                if page.url and "404" not in (await page.title()).lower():
-                    loaded = True
-                    break
+                if await detect_and_solve_captcha(page):
+                    await human_delay(1.5, 2.5)
+            except Exception as exc:
+                logger.warning("[kcoj] CAPTCHA solve skipped: %s", exc)
+                break
+
+    async def _ensure_session(self, page: Page) -> None:
+        """Log in as guest (if creds set) and land on CourtNet search."""
+        username = settings.kcoj_username
+        password = settings.kcoj_password
+        if not username or not password:
+            raise RuntimeError(
+                "Set KCOJ_USERNAME and KCOJ_PASSWORD in Doppler (foretrust-scraper) "
+                "for your guest CourtNet account."
+            )
+
+        await safe_goto(page, self.search_url)
+        await human_delay(1.5, 2.5)
+        await self._solve_captchas(page, passes=2)
+
+        if "/Login" in (page.url or "") or await page.query_selector(
+            "input#Username, input[name='Username'], input[type='text'][name*='user' i]"
+        ):
+            await safe_goto(page, self.login_url)
+            await human_delay(1.0, 2.0)
+            await self._solve_captchas(page, passes=1)
+
+            user_el = await page.query_selector(
+                "input#Username, input[name='Username'], "
+                "input[placeholder*='Username' i], input[type='text']"
+            )
+            pass_el = await page.query_selector(
+                "input#Password, input[name='Password'], input[type='password']"
+            )
+            if not user_el or not pass_el:
+                raise RuntimeError("KCOJ login form not found at " + self.login_url)
+
+            await user_el.fill(username)
+            await pass_el.fill(password)
+            await human_delay(0.8, 1.5)
+            await self._solve_captchas(page, passes=1)
+
+            login_btn = await page.query_selector(
+                "button[type='submit'], input[type='submit'], "
+                "button:has-text('Login'), input[value='Login']"
+            )
+            if login_btn:
+                await login_btn.click()
+                await page.wait_for_load_state("networkidle", timeout=30000)
+            await human_delay(2.0, 3.0)
+            await self._solve_captchas(page, passes=2)
+
+        await safe_goto(page, self.search_url)
+        await human_delay(1.5, 2.5)
+        await self._solve_captchas(page, passes=2)
+
+        if "/Login" in (page.url or ""):
+            raise RuntimeError(
+                "KCOJ login failed — still on Login page. Check guest credentials."
+            )
+
+    async def _expand_party_search_panel(self, page: Page) -> None:
+        """Open the collapsed 'Search by Party/Business' section."""
+        for selector in _PARTY_PANEL_TRIGGERS:
+            el = await page.query_selector(selector)
+            if not el:
+                continue
+            try:
+                await el.click()
+                await human_delay(0.8, 1.5)
+                return
             except Exception:
                 continue
-        if not loaded:
+
+        # Panel may already be expanded, or use a single visible party form
+        party_form = await page.query_selector(
+            "input#LastName, input[name='LastName'], "
+            "input[name*='LastName' i], input[placeholder*='Last Name' i], "
+            "input#BusinessName, input[name*='Business' i]"
+        )
+        if not party_form:
+            logger.debug("[kcoj] Party panel trigger not found — continuing with visible form")
+
+    async def _select_option_fuzzy(
+        self, page: Page, selector: str, value: str, *, by_label: bool = True
+    ) -> bool:
+        """Select dropdown option; try exact label/value then partial match."""
+        try:
+            if by_label:
+                await page.select_option(selector, label=value)
+            else:
+                await page.select_option(selector, value=value)
+            return True
+        except Exception:
+            pass
+
+        select_el = await page.query_selector(selector)
+        if not select_el:
+            return False
+
+        options = await select_el.query_selector_all("option")
+        target = value.upper()
+        for opt in options:
+            text = ((await opt.inner_text()) or "").strip()
+            val = (await opt.get_attribute("value")) or ""
+            if target in text.upper() or target in val.upper():
+                await select_el.select_option(value=val or text)
+                return True
+        return False
+
+    async def _party_search(
+        self,
+        page: Page,
+        search: dict[str, Any],
+        limit: int,
+        deep_scrape: bool,
+    ) -> list[RawRecord]:
+        """CourtNet 2.0 guest party/business search (no date-range bulk)."""
+        county = str(search.get("county", "")).strip()
+        last_name = str(search.get("last_name") or search.get("business_name") or "").strip()
+        first_name = str(search.get("first_name", "")).strip()
+        if not county:
+            raise ValueError("party_searches entry requires county")
+        if not last_name:
+            raise ValueError("party_searches entry requires last_name or business_name")
+
+        case_category = self._infer_case_category(search)
+        party_category = self._infer_party_category(search, case_category)
+
+        await safe_goto(page, self.search_url)
+        await human_delay(1.0, 2.0)
+        await self._solve_captchas(page, passes=2)
+
+        await self._expand_party_search_panel(page)
+        await human_delay(0.5, 1.0)
+
+        county_sel = (
+            "select#County, select[name='County'], select[name*='county' i], "
+            "#party-search select[name*='County' i]"
+        )
+        if not await page.query_selector(county_sel):
             raise RuntimeError(
-                "KCOJ case search page not reachable. Kentucky migrated to CourtNet 3 "
-                "(https://kcoj.kycourts.net/kyecourts/) — connector selectors need an update."
+                "KCOJ party search county dropdown not found — "
+                "selectors may need update after CourtNet UI change."
             )
-        await human_delay()
+        await self._select_option_fuzzy(page, county_sel, county)
 
-        await detect_and_solve_captcha(page)
+        case_cat_sel = (
+            "select#CaseCategory, select[name='CaseCategory'], "
+            "select[name*='CaseCategory' i], select[name*='case_category' i]"
+        )
+        if await page.query_selector(case_cat_sel):
+            if not await self._select_option_fuzzy(page, case_cat_sel, case_category):
+                logger.warning(
+                    "[kcoj] Case category %s not matched in dropdown", case_category
+                )
+        await human_delay(0.5, 1.0)
 
-        county_select = await page.query_selector("select#County, select[name='County']")
-        if not county_select:
-            raise RuntimeError(
-                "KCOJ search form not found on page (CourtNet 3 UI). "
-                "Probate/foreclosure scraping is broken until connector is updated."
-            )
-        if county_select:
-            await page.select_option("select#County, select[name='County']", label=county)
-            await human_delay(1.0, 2.0)
+        party_cat_sel = (
+            "select#PartyCategory, select[name='PartyCategory'], "
+            "select[name*='PartyCategory' i], select[name*='party_category' i]"
+        )
+        if party_category and await page.query_selector(party_cat_sel):
+            if not await self._select_option_fuzzy(page, party_cat_sel, party_category):
+                logger.debug(
+                    "[kcoj] Party category %s not matched; using default",
+                    party_category,
+                )
 
-        case_select = await page.query_selector("select#CaseType, select[name='CaseType']")
-        if case_select:
-            await page.select_option("select#CaseType, select[name='CaseType']", label=case_type)
-            await human_delay(1.0, 2.0)
-
-        today = date.today()
-        thirty_ago = today - timedelta(days=90)
-        date_from = await page.query_selector("input#FiledDateFrom, input[name='FiledDateFrom']")
-        if date_from:
-            await date_from.fill(thirty_ago.strftime("%m/%d/%Y"))
-        date_to = await page.query_selector("input#FiledDateTo, input[name='FiledDateTo']")
-        if date_to:
-            await date_to.fill(today.strftime("%m/%d/%Y"))
+        for sel, value in [
+            (
+                "input#LastName, input[name='LastName'], input[name*='LastName' i], "
+                "input[placeholder*='Last Name' i]",
+                last_name,
+            ),
+            (
+                "input#BusinessName, input[name='BusinessName'], "
+                "input[name*='Business' i], input[placeholder*='Business' i]",
+                last_name if search.get("business_name") else "",
+            ),
+            (
+                "input#FirstName, input[name='FirstName'], input[name*='FirstName' i], "
+                "input[placeholder*='First Name' i]",
+                first_name,
+            ),
+        ]:
+            if not value:
+                continue
+            el = await page.query_selector(sel)
+            if el:
+                await el.fill(value)
+                await human_delay(0.3, 0.6)
 
         search_btn = await page.query_selector(
-            "input#Search, button[type='submit'], input[type='submit']"
+            "#party-search input#Search, #party-search button#Search, "
+            "button:has-text('Search'), input[type='submit'][value='Search'], "
+            "input#Search, button#Search"
         )
         if search_btn:
             await search_btn.click()
-            await page.wait_for_load_state("networkidle", timeout=15000)
-            await human_delay()
+            await page.wait_for_load_state("networkidle", timeout=30000)
+            await human_delay(1.0, 2.0)
 
-        await detect_and_solve_captcha(page)
+        await self._solve_captchas(page, passes=2)
 
+        records = await self._parse_search_results(
+            page,
+            county=county,
+            case_category=case_category,
+            limit=limit,
+            deep_scrape=deep_scrape,
+            search_meta={
+                "search_mode": "party",
+                "party_last_name": last_name,
+                "party_first_name": first_name or None,
+                "party_category": party_category,
+                "lead_type_hint": search.get("lead_type"),
+            },
+        )
+        logger.info(
+            "[kcoj] party search %s/%s %s: %d records",
+            county,
+            case_category,
+            last_name,
+            len(records),
+        )
+        return records
+
+    async def _parse_search_results(
+        self,
+        page: Page,
+        *,
+        county: str,
+        case_category: str,
+        limit: int,
+        deep_scrape: bool,
+        search_meta: dict[str, Any],
+        case_type_label: str | None = None,
+    ) -> list[RawRecord]:
+        """Parse the results table after any search submit."""
         records: list[RawRecord] = []
         rows = await page.query_selector_all(
-            "tr.data-row, table.results tr:not(:first-child), .search-results tr"
+            "tr.data-row, table.results tr:not(:first-child), "
+            ".search-results tr, #SearchResults tr:not(:first-child)"
         )
 
         for row in rows[:limit]:
@@ -169,17 +437,18 @@ class KCOJCourtNetConnector(BaseConnector):
                 if len(cells) < 2:
                     continue
 
-                cell_texts = [
-                    (await cell.inner_text()).strip() for cell in cells
-                ]
+                cell_texts = [(await cell.inner_text()).strip() for cell in cells]
 
-                # Try to get the link to the case detail page
-                link_el = await row.query_selector("a[href*='casesearch'], a[href*='case']")
+                link_el = await row.query_selector(
+                    "a[href*='casesearch'], a[href*='case'], a[href*='CourtNet']"
+                )
                 case_href = await link_el.get_attribute("href") if link_el else None
 
-                base_data = {
+                base_data: dict[str, Any] = {
+                    **search_meta,
                     "county": county,
-                    "case_type": case_type,
+                    "case_category": case_category,
+                    "case_type": case_type_label or case_category,
                     "cells": cell_texts,
                     "name": cell_texts[0] if cell_texts else "",
                     "case_id": cell_texts[1] if len(cell_texts) > 1 else "",
@@ -188,30 +457,100 @@ class KCOJCourtNetConnector(BaseConnector):
                     "case_status": cell_texts[4] if len(cell_texts) > 4 else "",
                 }
 
-                # Deep scrape: click into the case for full detail
                 if deep_scrape and case_href:
                     try:
                         detail_url = (
                             case_href
                             if case_href.startswith("http")
-                            else f"{self.base_url}{case_href}"
+                            else f"{self.base_url.rstrip('/')}{case_href}"
                         )
                         detail = await self._extract_case_detail(page, detail_url)
                         base_data.update(detail)
                         await page.go_back()
                         await human_delay(1.5, 3.0)
                     except Exception as exc:
-                        logger.debug("[kcoj] Case detail failed for %s: %s", base_data.get("case_id"), exc)
+                        logger.debug(
+                            "[kcoj] Case detail failed for %s: %s",
+                            base_data.get("case_id"),
+                            exc,
+                        )
 
                 records.append(RawRecord(source_key=self.source_key, data=base_data))
 
             except Exception as exc:
                 logger.debug("[kcoj] Row parse error: %s", exc)
 
-        logger.info("[kcoj] %s/%s: %d records", county, case_type, len(records))
         return records
 
-    async def _extract_case_detail(self, page, url: str) -> dict:
+    async def _search_county_case_type(
+        self, page: Page, county: str, case_type: str, limit: int, deep_scrape: bool
+    ) -> list[RawRecord]:
+        """Legacy 90-day bulk search — only when params bulk_legacy=true."""
+        await safe_goto(page, self.search_url)
+        await human_delay(1.0, 2.0)
+        await self._solve_captchas(page, passes=2)
+
+        county_select = await page.query_selector(
+            "select#County, select[name='County'], select[name*='county' i]"
+        )
+        if not county_select:
+            raise RuntimeError(
+                "KCOJ search form not found at CourtNet/Search/Index — "
+                "selectors may need update after guest UI change."
+            )
+        await page.select_option(
+            "select#County, select[name='County'], select[name*='county' i]",
+            label=county,
+        )
+        await human_delay(1.0, 2.0)
+
+        case_select = await page.query_selector(
+            "select#CaseType, select[name='CaseType'], select[name*='case' i]"
+        )
+        if case_select:
+            try:
+                await page.select_option(
+                    "select#CaseType, select[name='CaseType'], select[name*='case' i]",
+                    label=case_type,
+                )
+            except Exception:
+                logger.debug("[kcoj] Case type %s not in dropdown; skipping filter", case_type)
+            await human_delay(1.0, 2.0)
+
+        today = date.today()
+        filed_from = today - timedelta(days=90)
+        for sel, value in [
+            ("input#FiledDateFrom, input[name='FiledDateFrom'], input[name*='From' i]", filed_from),
+            ("input#FiledDateTo, input[name='FiledDateTo'], input[name*='To' i]", today),
+        ]:
+            el = await page.query_selector(sel)
+            if el:
+                await el.fill(value.strftime("%m/%d/%Y"))
+
+        search_btn = await page.query_selector(
+            "input#Search, button#Search, button[type='submit'], "
+            "input[type='submit'], button:has-text('Search')"
+        )
+        if search_btn:
+            await search_btn.click()
+            await page.wait_for_load_state("networkidle", timeout=30000)
+            await human_delay()
+
+        await self._solve_captchas(page, passes=2)
+
+        records = await self._parse_search_results(
+            page,
+            county=county,
+            case_category=case_type,
+            limit=limit,
+            deep_scrape=deep_scrape,
+            search_meta={"search_mode": "bulk_legacy"},
+            case_type_label=case_type,
+        )
+        logger.info("[kcoj] legacy %s/%s: %d records", county, case_type, len(records))
+        return records
+
+    async def _extract_case_detail(self, page: Page, url: str) -> dict:
         """Navigate to a KCOJ case detail page and extract all available data.
 
         Returns a dict that gets merged into the base_data dict.
@@ -227,7 +566,6 @@ class KCOJCourtNetConnector(BaseConnector):
         except Exception:
             pass
 
-        # --- Case Header ---
         for selector, key in [
             (".case-number, #CaseNumber, [data-field='case_number']", "case_number_detail"),
             (".case-status, #CaseStatus, [data-field='case_status']", "case_status_detail"),
@@ -239,8 +577,6 @@ class KCOJCourtNetConnector(BaseConnector):
             if el:
                 detail[key] = (await el.inner_text()).strip()
 
-        # --- Parties Table ---
-        # KCOJ typically has a parties section with: Name | Role | DOB | Attorney
         parties: list[dict] = []
         party_rows = await page.query_selector_all(
             ".parties-table tr:not(:first-child), "
@@ -261,11 +597,18 @@ class KCOJCourtNetConnector(BaseConnector):
 
         if parties:
             detail["all_parties"] = parties
-            # Convenience fields
-            plaintiffs = [p for p in parties if "PLAINTIFF" in p.get("role", "").upper()
-                          or "PETITIONER" in p.get("role", "").upper()]
-            defendants = [p for p in parties if "DEFENDANT" in p.get("role", "").upper()
-                          or "RESPONDENT" in p.get("role", "").upper()]
+            plaintiffs = [
+                p
+                for p in parties
+                if "PLAINTIFF" in p.get("role", "").upper()
+                or "PETITIONER" in p.get("role", "").upper()
+            ]
+            defendants = [
+                p
+                for p in parties
+                if "DEFENDANT" in p.get("role", "").upper()
+                or "RESPONDENT" in p.get("role", "").upper()
+            ]
             if plaintiffs:
                 detail["plaintiff"] = plaintiffs[0]["name"]
                 detail["plaintiff_attorney"] = plaintiffs[0].get("attorney", "")
@@ -273,10 +616,8 @@ class KCOJCourtNetConnector(BaseConnector):
                 detail["defendant"] = defendants[0]["name"]
                 detail["defendant_attorney"] = defendants[0].get("attorney", "")
 
-        # --- Dollar Amounts (foreclosure loan balance / judgment) ---
         amounts = _AMOUNT_RE.findall(full_text)
         if amounts:
-            # Filter out small amounts (fees) — keep amounts > $10,000
             big_amounts = []
             for amt_str in amounts:
                 try:
@@ -289,13 +630,11 @@ class KCOJCourtNetConnector(BaseConnector):
                 detail["claim_amounts"] = big_amounts
                 detail["max_claim_amount"] = max(big_amounts)
 
-        # --- Property Address in Case Text ---
         addr_matches = _ADDR_RE.findall(full_text)
         if addr_matches:
             detail["property_address_in_case"] = addr_matches[0].strip()
             detail["all_addresses_in_case"] = [a.strip() for a in addr_matches[:5]]
 
-        # --- Docket Entries (most recent 5) ---
         docket_rows = await page.query_selector_all(
             ".docket-table tr:not(:first-child), "
             "table#DocketTable tr:not(:first-child), "
@@ -309,10 +648,10 @@ class KCOJCourtNetConnector(BaseConnector):
         if docket_entries:
             detail["docket_entries"] = docket_entries
 
-        # --- Master Commissioner Sale Date (if scheduled) ---
         mc_match = re.search(
             r"(?:master commissioner|mc sale|commissioner.*sale)[^\n]*?(\d{1,2}/\d{1,2}/\d{4})",
-            full_text, re.IGNORECASE,
+            full_text,
+            re.IGNORECASE,
         )
         if mc_match:
             detail["mc_sale_date"] = mc_match.group(1)
@@ -322,16 +661,19 @@ class KCOJCourtNetConnector(BaseConnector):
     def parse(self, raw: RawRecord) -> Lead:
         data = raw.data
         case_type = data.get("case_type", "")
-        lead_type = CASE_TYPE_MAP.get(case_type, LeadType.PROBATE)
+        case_category = (data.get("case_category") or "").upper()
 
-        # For civil cases, confirm property-related via keywords
+        if case_category in CASE_CATEGORY_TO_LEAD_TYPE:
+            lead_type = CASE_CATEGORY_TO_LEAD_TYPE[case_category]
+        else:
+            lead_type = CASE_TYPE_MAP.get(case_type, LeadType.PROBATE)
+
         if lead_type == LeadType.FORECLOSURE:
             desc = (data.get("case_description") or "").upper()
             full_text = " ".join(str(v) for v in data.values()).upper()
             if not any(kw in full_text for kw in FORECLOSURE_KEYWORDS):
                 lead_type = LeadType.ESTATE
 
-        # Sub-classify probate
         if lead_type == LeadType.PROBATE:
             desc = (data.get("case_description") or "").upper()
             if any(kw in desc for kw in ["TRUST", "ESTATE OF", "ADMIN"]):
@@ -339,12 +681,8 @@ class KCOJCourtNetConnector(BaseConnector):
 
         county = data.get("county", "")
         filed_date = parse_date(data.get("filed_date", ""))
-
-        # Property address: prefer address found in the case text
         property_address = data.get("property_address_in_case") or None
 
-        # Owner name: for probate/estate, use the estate/deceased name;
-        # for foreclosure, use the defendant (borrower)
         if lead_type in (LeadType.FORECLOSURE, LeadType.PRE_FORECLOSURE):
             owner_name = data.get("defendant") or data.get("name")
         else:

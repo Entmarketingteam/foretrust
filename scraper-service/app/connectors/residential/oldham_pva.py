@@ -23,7 +23,12 @@ class OldhamPVAConnector(BaseConnector):
     source_key = "oldham_pva"
     vertical = Vertical.RESIDENTIAL
     jurisdiction = "KY-Oldham"
-    base_url = "https://oldhamcountypva.com"
+    base_url = "https://oldhampva.com"
+    # Schneider qPublic (linked from official PVA site)
+    qpublic_url = (
+        "https://qpublic.schneidercorp.com/Application.aspx"
+        "?App=OldhamCountyKY&PageType=Search"
+    )
     default_schedule = "15 7 * * *"
     respects_robots = False  # Public government records — robots.txt is advisory, not legal restriction
 
@@ -34,10 +39,10 @@ class OldhamPVAConnector(BaseConnector):
 
         async with create_context(browser) as ctx:
             page = await ctx.new_page()
-            await safe_goto(page, self.base_url)
-            await human_delay()
 
             if search_addresses:
+                await safe_goto(page, self.qpublic_url)
+                await human_delay()
                 for addr in search_addresses[:limit]:
                     try:
                         record = await self._search_address(page, addr)
@@ -47,14 +52,49 @@ class OldhamPVAConnector(BaseConnector):
                         logger.warning("[oldham_pva] Lookup failed for %s: %s", addr, exc)
                     await human_delay(2.0, 4.0)
             else:
-                # Try GIS / ArcGIS REST endpoint for Oldham County
+                # Discovery: ArcGIS first (no browser nav to dead oldhamcountypva.com domain)
                 records = await self._scan_gis(page, params.get("min_sqft", 6000), limit)
+                if not records:
+                    logger.info("[oldham_pva] GIS empty — trying qPublic portal")
+                    try:
+                        await safe_goto(page, self.qpublic_url)
+                        await human_delay()
+                        records = await self._browse_qpublic(page, limit)
+                    except Exception as exc:
+                        logger.warning("[oldham_pva] qPublic browse failed: %s", exc)
 
+        return records
+
+    async def _browse_qpublic(self, page, limit: int) -> list[RawRecord]:
+        """Fallback: scrape search results table on Schneider qPublic."""
+        records: list[RawRecord] = []
+        rows = await page.query_selector_all(
+            "table tbody tr, .search-results tr, .result-row"
+        )
+        for row in rows[:limit]:
+            try:
+                cells = await row.query_selector_all("td")
+                texts = [(await c.inner_text()).strip() for c in cells]
+                if len(texts) < 2:
+                    continue
+                records.append(
+                    RawRecord(
+                        source_key=self.source_key,
+                        data={
+                            "owner_name": texts[0],
+                            "property_address": texts[1] if len(texts) > 1 else "",
+                            "parcel_number": texts[2] if len(texts) > 2 else "",
+                            "source": "qpublic_browse",
+                        },
+                    )
+                )
+            except Exception as exc:
+                logger.debug("[oldham_pva] qPublic row error: %s", exc)
         return records
 
     async def _search_address(self, page, address: str) -> RawRecord | None:
         """Single address lookup on Oldham PVA."""
-        await safe_goto(page, self.base_url)
+        await safe_goto(page, self.qpublic_url)
         await human_delay()
 
         search_input = await page.query_selector(

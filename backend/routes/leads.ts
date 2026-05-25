@@ -2,7 +2,7 @@
 // Bridges the Node backend to the Python scraper service
 import { Router, Request, Response } from 'express';
 import * as db from '../services/database.js';
-import { triggerScraperRun, triggerFullPipeline } from '../services/scraper.js';
+import { triggerScraperRun, triggerFullPipeline, triggerPreMlsPipeline } from '../services/scraper.js';
 import { interpretLead, generateSlbThesis, type LeadInterpretation } from '../services/claude.js';
 import { researchLead } from '../services/search.js';
 import { enrichLeadContact } from '../services/contact.js';
@@ -116,6 +116,23 @@ router.post('/pipeline', async (req: Request, res: Response) => {
   } catch (error) {
     console.error('Error triggering pipeline:', error);
     res.status(500).json({ success: false, error: 'Failed to trigger full pipeline' });
+  }
+});
+
+// Trigger pre-MLS pipeline (notices → MC → tax → KCOJ party search → GIS → PVA)
+router.post('/pipeline/pre-mls', async (req: Request, res: Response) => {
+  try {
+    const { counties, limit_per_source, gis_limit, party_search_limit } = req.body;
+    const result = await triggerPreMlsPipeline({
+      counties,
+      limit_per_source,
+      gis_limit,
+      party_search_limit,
+    });
+    res.json({ success: true, data: result });
+  } catch (error) {
+    console.error('Error triggering pre-MLS pipeline:', error);
+    res.status(500).json({ success: false, error: 'Failed to trigger pre-MLS pipeline' });
   }
 });
 

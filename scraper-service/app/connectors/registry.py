@@ -44,6 +44,7 @@ def _load_all() -> None:
     import app.connectors.residential.ecclix_batch  # noqa: F401
     import app.connectors.residential.ky_state_gis  # noqa: F401
     import app.connectors.residential.legal_notices  # noqa: F401
+    import app.connectors.residential.georgetown_water  # noqa: F401
 
     # Commercial (stubs)
     import app.connectors.commercial  # noqa: F401
