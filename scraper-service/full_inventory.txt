@@ -1,0 +1,4 @@
+KY-Bourbon | tax_lien: 369 leads
+KY-Fayette | vacancy: 200 leads
+KY-Franklin | pre_foreclosure: 2 leads
+KY-Franklin | tax_lien: 429 leads
