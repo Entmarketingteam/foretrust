@@ -66,7 +66,7 @@ class KCOJCourtNetConnector(BaseConnector):
     source_key = "kcoj_courtnet"
     vertical = Vertical.RESIDENTIAL
     jurisdiction = "KY-Multi"
-    base_url = "https://kcoj.kycourts.net"
+    base_url = "https://kcoj.kycourts.net/kyecourts/"
     default_schedule = "0 6 * * *"
     respects_robots = False  # Public court records — KRS 61.872 mandates public access
 
@@ -100,12 +100,36 @@ class KCOJCourtNetConnector(BaseConnector):
     async def _search_county_case_type(
         self, page, county: str, case_type: str, limit: int, deep_scrape: bool
     ) -> list[RawRecord]:
-        await safe_goto(page, f"{self.base_url}/casesearch")
+        # Legacy path was /casesearch (404 as of 2026); CourtNet 3 lives under /kyecourts/
+        search_urls = [
+            f"{self.base_url.rstrip('/')}/casesearch",
+            self.base_url,
+            "https://kcoj.kycourts.net/casesearch",
+        ]
+        loaded = False
+        for url in search_urls:
+            try:
+                await safe_goto(page, url)
+                if page.url and "404" not in (await page.title()).lower():
+                    loaded = True
+                    break
+            except Exception:
+                continue
+        if not loaded:
+            raise RuntimeError(
+                "KCOJ case search page not reachable. Kentucky migrated to CourtNet 3 "
+                "(https://kcoj.kycourts.net/kyecourts/) — connector selectors need an update."
+            )
         await human_delay()
 
         await detect_and_solve_captcha(page)
 
         county_select = await page.query_selector("select#County, select[name='County']")
+        if not county_select:
+            raise RuntimeError(
+                "KCOJ search form not found on page (CourtNet 3 UI). "
+                "Probate/foreclosure scraping is broken until connector is updated."
+            )
         if county_select:
             await page.select_option("select#County, select[name='County']", label=county)
             await human_delay(1.0, 2.0)
@@ -116,7 +140,7 @@ class KCOJCourtNetConnector(BaseConnector):
             await human_delay(1.0, 2.0)
 
         today = date.today()
-        thirty_ago = today - timedelta(days=30)
+        thirty_ago = today - timedelta(days=90)
         date_from = await page.query_selector("input#FiledDateFrom, input[name='FiledDateFrom']")
         if date_from:
             await date_from.fill(thirty_ago.strftime("%m/%d/%Y"))
