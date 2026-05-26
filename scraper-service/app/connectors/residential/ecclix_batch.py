@@ -98,6 +98,7 @@ class ECCLIXBatchConnector(BaseConnector):
     jurisdiction = "KY-Multi"
     base_url = CENTRAL_PORTAL
     respects_robots = False
+    default_schedule = ""  # manual / day-pass scripts only — never auto-cron on Railway
 
     async def fetch(self, browser: Browser, params: dict[str, Any]) -> list[RawRecord]:
         username = settings.ecclix_username

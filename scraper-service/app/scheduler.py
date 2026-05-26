@@ -88,7 +88,7 @@ def setup_scheduler() -> None:
     connectors = list_connectors()
 
     for source_key, cls in connectors.items():
-        schedule = cls.default_schedule
+        schedule = getattr(cls, "default_schedule", "") or ""
         if not schedule:
             logger.info("[scheduler] %s: no schedule (manual only)", source_key)
             continue
