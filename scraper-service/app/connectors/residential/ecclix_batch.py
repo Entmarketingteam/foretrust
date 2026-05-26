@@ -347,6 +347,8 @@ class ECCLIXBatchConnector(BaseConnector):
                         continue
                     if profile.module == "delinquent_tax":
                         year = profile.tax_year or tax_year
+                        if not await portal._page_has_delinquent_tax_form(page):
+                            await portal.goto_delinquent_tax_search(page, portal_url)
                         if full_extract:
                             rows = await portal.collect_all_delinquent_tax(
                                 page,

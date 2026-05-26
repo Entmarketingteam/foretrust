@@ -490,26 +490,54 @@ async def goto_delinquent_tax_search(page, portal_base: str) -> None:
     """Open Delinquent Tax search via top menu (subscriber portal only)."""
     if await is_login_page(page):
         return
-    # Delinquent Tax may be a dropdown on some county builds
-    dt = page.get_by_role("link", name=re.compile(r"Delinquent\s+Tax", re.I))
-    if await dt.count() > 0:
-        await _portal_click(dt.first)
-        await human_delay(0.8, 1.2)
-        idx = page.get_by_role("link", name=re.compile(r"Index\s+Search", re.I))
-        if await idx.count() > 0:
-            await _portal_click(idx.first)
-            await human_delay(1.5, 2.5)
+    base = portal_base.rstrip("/")
+
+    async def _try_menu() -> bool:
+        dt = page.get_by_role("link", name=re.compile(r"Delinquent\s+Tax", re.I))
+        if await dt.count() > 0:
+            await _portal_click(dt.first)
+            await human_delay(0.8, 1.2)
+            idx = page.get_by_role("link", name=re.compile(r"Index\s+Search", re.I))
+            if await idx.count() > 0:
+                await _portal_click(idx.first)
+                await human_delay(1.5, 2.5)
+            else:
+                await human_delay(1.0, 1.5)
         else:
-            await human_delay(1.0, 1.5)
-    else:
-        await _navigate_top_menu(page, MENU_DELINQUENT_TAX)
-        await human_delay(1.5, 2.5)
-    if not await _page_has_delinquent_tax_form(page):
-        logger.warning(
-            "[ecclix] delinquent tax form not detected after menu url=%s", page.url
-        )
-    else:
+            await _navigate_top_menu(page, MENU_DELINQUENT_TAX)
+            await human_delay(1.5, 2.5)
+        return await _page_has_delinquent_tax_form(page)
+
+    if await _try_menu():
         logger.info("[ecclix] delinquent tax page url=%s", page.url)
+        return
+
+    # Menu often lands on instrinq# — try known DTAX URLs (Central + county subs)
+    fallbacks = (
+        f"{base}/Public/DTAX/Bills/Search",
+        f"{base}/ecclix/dtsearch.aspx",
+        f"{base}/ecclix/DTSearch.aspx",
+        "https://www.ecclix.com/Public/DTAX/Bills/Search",
+        "https://www.ecclix.com/ecclix/dtsearch.aspx",
+    )
+    for url in fallbacks:
+        try:
+            await safe_goto(page, url)
+            await human_delay(1.0, 1.8)
+            if await _page_has_delinquent_tax_form(page):
+                logger.info("[ecclix] delinquent tax via direct url=%s", page.url)
+                return
+        except Exception as exc:
+            logger.debug("[ecclix] delinquent tax url %s: %s", url, exc)
+
+    if await _try_menu():
+        logger.info("[ecclix] delinquent tax page (retry menu) url=%s", page.url)
+        return
+
+    logger.warning(
+        "[ecclix] delinquent tax form not detected after menu+fallbacks url=%s",
+        page.url,
+    )
 
 
 async def goto_securities_search(page, portal_base: str) -> None:
