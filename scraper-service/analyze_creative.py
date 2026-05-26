@@ -7,38 +7,41 @@ async def analyze():
     key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
     supabase = create_client(url, key)
     
-    res = supabase.table("ft_leads").select("jurisdiction, property_address, lead_type, raw_payload").execute()
+    # Query leads where pva_enriched is true
+    res = supabase.table("ft_leads").select("*").filter("raw_payload->>pva_enriched", "eq", "true").execute()
     
     subto = []
     equity_trap = []
+    
+    print(f"--- REAL-TIME CREATIVE FINANCE ANALYSIS ---")
+    print(f"Enriched leads found: {len(res.data)}")
     
     for lead in res.data:
         payload = lead.get("raw_payload", {})
         addr = lead.get("property_address")
         
-        # Check for 2020/2021 purchase dates in 'date' or 'raw_payload'
-        date_str = payload.get("date", "")
-        if "2020" in date_str or "2021" in date_str:
+        # Pace Morby SubTo: 2020-2021 purchase dates
+        sale_date = payload.get("last_sale_date", "")
+        if any(year in str(sale_date) for year in ["2020", "2021"]):
             subto.append(lead)
             
-        # Equity Trap Logic: If assessed value is close to purchase price
-        # (Assuming we have these fields in raw_payload)
+        # Equity Trap: Price vs Assessed
         try:
             val = float(payload.get("assessed_value", 0))
-            price = float(payload.get("purchase_price", 0))
-            if val > 0 and price > 0 and (val - price) < (val * 0.1):
-                equity_trap.append(lead)
+            price = float(payload.get("last_sale_price", 0))
+            if val > 0 and price > 0:
+                equity = (val - price) / val
+                if equity < 0.1:
+                    equity_trap.append(lead)
         except: pass
 
-    print(f"--- CREATIVE FINANCE ANALYSIS ---")
-    print(f"Total Leads Analyzed: {len(res.data)}")
-    print(f"🔥 SubTo Candidates (2020-2021 Rates): {len(subto)}")
+    print(f"🔥 SubTo Candidates (3% Interest Rate Potential): {len(subto)}")
     print(f"🔥 Equity Trapped Candidates: {len(equity_trap)}")
     
     if subto:
-        print("\nTop SubTo Targets:")
-        for s in subto[:5]:
-            print(f"- {s['property_address']} ({s['jurisdiction']})")
+        print("\nTOP SUBTO OPPORTUNITIES:")
+        for s in subto[:10]:
+            print(f"- {s['property_address']} (Jurisdiction: {s['jurisdiction']})")
 
 if __name__ == "__main__":
     asyncio.run(analyze())

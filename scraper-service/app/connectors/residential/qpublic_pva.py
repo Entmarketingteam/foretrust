@@ -42,13 +42,21 @@ class QPublicPVAConnector(BasePVAConnector):
         return f"/Application.aspx?App={app}&PageType=Search"
 
     async def _wait_portal_ready(self, page: Page, timeout_sec: int = 60) -> bool:
-        for _ in range(max(1, timeout_sec // 2)):
+        for i in range(max(1, timeout_sec // 2)):
+            # Aggressively dismiss terms during wait
+            await self._dismiss_terms(page)
+            
             title = (await page.title() or "").lower()
             blocked = "just a moment" in title or "verify you are human" in title
             inp = await page.query_selector(_ADDR_INPUT)
             if inp and not blocked:
                 return True
+            
+            if i % 5 == 0:
+                logger.info("[%s] Waiting for qPublic... (Title: %s)", self.source_key, title)
             await human_delay(2.0, 3.0)
+        
+        await page.screenshot(path=f"debug_qpublic_fail_{self.source_key}.png")
         return False
 
     async def _dismiss_terms(self, page: Page) -> None:
@@ -114,14 +122,6 @@ class QPublicPVAConnector(BasePVAConnector):
         except Exception:
             await page.wait_for_load_state("domcontentloaded", timeout=20000)
         await human_delay(1.5, 2.5)
-
-        if submit:
-            await submit.click()
-            try:
-                await page.wait_for_load_state("networkidle", timeout=20000)
-            except Exception:
-                await page.wait_for_load_state("domcontentloaded", timeout=20000)
-            await human_delay(1.5, 2.5)
 
         # qPublic often jumps straight to parcel detail (PageTypeID=4)
         if "PageTypeID=4" not in page.url and "KeyValue=" not in page.url:

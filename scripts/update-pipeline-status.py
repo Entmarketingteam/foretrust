@@ -114,7 +114,6 @@ def build_status() -> dict:
         "scenario_library_dirs": scenario_dirs,
         "master": _master_stats(),
         "known_issues": [
-            "ft_clerk_documents: apply supabase/migrations/20260525100000_ft_clerk_documents.sql (or supabase db push) until PDF upserts succeed",
             "One eCCLIX login — never run parallel browser sessions on same account",
             "KCOJ CourtNet selectors may need update (search form not found)",
         ],

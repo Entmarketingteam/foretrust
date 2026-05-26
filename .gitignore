@@ -6,6 +6,11 @@ dist/
 # Scraper service
 scraper-service/exports/*
 !scraper-service/exports/.gitkeep
+scraper-service/enrichment.log
+scraper-service/debug_*.png
+scraper-service/*_debug.png
+scraper-service/debug_*.py
+scraper-service/test_*.py
 __pycache__/
 *.pyc
 .pytest_cache/

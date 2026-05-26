@@ -196,11 +196,14 @@ def write_deal_report(
         lines.append("|------:|-------|---------|--------:|----------|--------|")
         for item in items:
             sc = item.get("investment_scores") or {}
+            owner = (item.get("owner_name") or "")[:40]
+            addr = (item.get("property_address") or "")[:35]
+            amount = item.get("amount_due") or item.get("estimated_value") or 0
             lines.append(
                 f"| {sc.get('pre_mls_score', 0)} "
-                f"| {item.get('owner_name', '')[:40]} "
-                f"| {item.get('property_address', '')[:35]} "
-                f"| ${item.get('amount_due') or item.get('estimated_value') or 0:,.0f} "
+                f"| {owner} "
+                f"| {addr} "
+                f"| ${amount:,.0f} "
                 f"| {sc.get('short_sale_score', 0)}/{sc.get('fha_203k_score', 0)} "
                 f"| {item.get('parcel_number', '')} |"
             )

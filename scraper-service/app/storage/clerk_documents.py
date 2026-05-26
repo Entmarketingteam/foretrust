@@ -50,11 +50,13 @@ def save_document_bytes(
 
 async def insert_clerk_document(row: dict[str, Any]) -> bool:
     """Upsert one clerk document row into Supabase."""
-    from app.storage.supabase_client import _get_client
+    from app.storage.supabase_client import DEFAULT_ORG_ID, _get_client
 
     client = _get_client()
     if not client:
         return False
+    if not row.get("organization_id"):
+        row = {**row, "organization_id": DEFAULT_ORG_ID}
     try:
         client.table("ft_clerk_documents").upsert(
             row,

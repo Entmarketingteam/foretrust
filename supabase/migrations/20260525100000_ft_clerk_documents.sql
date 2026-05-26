@@ -2,7 +2,7 @@
 
 CREATE TABLE IF NOT EXISTS ft_clerk_documents (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  organization_id UUID NOT NULL DEFAULT '00000000-0000-0000-0000-000000000000'::uuid
+  organization_id UUID NOT NULL DEFAULT '00000000-0000-0000-0000-000000000001'::uuid
     REFERENCES ft_organizations(id) ON DELETE CASCADE,
   lead_id UUID REFERENCES ft_leads(id) ON DELETE SET NULL,
   source_key VARCHAR(100) NOT NULL DEFAULT 'ecclix_batch',
@@ -31,6 +31,7 @@ CREATE INDEX IF NOT EXISTS idx_clerk_docs_type ON ft_clerk_documents(instrument_
 
 ALTER TABLE ft_clerk_documents ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Service role full access clerk docs" ON ft_clerk_documents;
 CREATE POLICY "Service role full access clerk docs" ON ft_clerk_documents
   FOR ALL USING (true) WITH CHECK (true);
 
