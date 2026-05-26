@@ -25,6 +25,7 @@ from app.connectors.base import BaseConnector
 from app.connectors.registry import register
 from app.connectors.residential import ecclix_portal as portal
 from app.connectors.residential.ecclix_county_config import (
+    COUNTY_PROFILES,
     portal_bases_for,
     wholesale_instrument_codes,
 )
@@ -106,10 +107,6 @@ class ECCLIXBatchConnector(BaseConnector):
             return []
 
         mode = params.get("mode", "wholesale")
-<<<<<<< Updated upstream
-        counties = params.get("counties") or settings.ecclix_county_list or ["Bourbon", "Scott", "Woodford", "Franklin"]
-        start_date = params.get("start_date", "01/01/2026")
-=======
         if params.get("no_proxy") is None and mode in (
             "delinquent_tax",
             "usable_extract",
@@ -124,12 +121,11 @@ class ECCLIXBatchConnector(BaseConnector):
             "estate_tax_buyer",
         ):
             params = {**params, "no_proxy": True}
-        counties = params.get("counties") or settings.ecclix_county_list or list(ECCLIX_URLS.keys())
+        counties = params.get("counties") or settings.ecclix_county_list or [COUNTY_PROFILES[k].name for k in ("scott", "bourbon", "woodford", "franklin") if k in COUNTY_PROFILES]
         download_docs = params.get("download_documents", True)
         days_back = int(params.get("days_back", 30))
         max_per_county = int(params.get("max_documents_per_county", params.get("limit", 25)))
         instrument_types = params.get("instrument_types")
->>>>>>> Stashed changes
 
         records: list[RawRecord] = []
 
@@ -138,36 +134,9 @@ class ECCLIXBatchConnector(BaseConnector):
             try:
                 await self._login(page, username, password)
 
-<<<<<<< Updated upstream
-                for county in counties:
-                    try:
-                        if not await self._select_county(page, county): continue
-
-                        # 1. Search Instruments (Expanded Distress & Creative)
-                        for inst_type in DISTRESS_INSTRUMENTS:
-                            try:
-                                batch = await self._search_by_date_range(page, county, inst_type, start_date)
-                                records.extend(batch)
-                                if batch: logger.info("[ecclix] %s/%s: Found %d", county, inst_type, len(batch))
-                            except Exception as exc:
-                                logger.warning("[ecclix] %s/%s failed: %s", county, inst_type, exc)
-                            await human_delay(1.0, 2.0)
-
-                        # 2. Search Taxes
-                        if params.get("scrape_taxes", True):
-                            try:
-                                tax_records = await self._search_delinquent_taxes(page, county)
-                                records.extend(tax_records)
-                                if tax_records: logger.info("[ecclix] %s/TAX: Found %d", county, len(tax_records))
-                            except Exception as exc:
-                                logger.warning("[ecclix] %s/TAX failed: %s", county, exc)
-
-                    except Exception as exc:
-                        logger.error("[ecclix] County %s failed: %s", county, exc)
-
             except Exception as exc:
                 logger.error("[ecclix] Fatal session error: %s", exc)
-=======
+
             if mode == "address":
                 records = await self._mode_address(page, username, password, counties, params)
             elif mode == "name":
@@ -280,12 +249,10 @@ class ECCLIXBatchConnector(BaseConnector):
                     max_per_county=max_per_county,
                     download_documents=download_docs,
                 )
->>>>>>> Stashed changes
 
         logger.info("[ecclix] fetch complete: %d records (mode=%s)", len(records), mode)
         return records
 
-<<<<<<< Updated upstream
     async def _login(self, page: Page, username: str, password: str) -> None:
         await safe_goto(page, f"{CENTRAL_PORTAL}/ecclix/login.aspx")
         user_f = await page.query_selector("input#txtUsername")
@@ -299,23 +266,7 @@ class ECCLIXBatchConnector(BaseConnector):
                 if btn: await btn.click()
                 await page.wait_for_load_state("networkidle")
 
-    async def _select_county(self, page: Page, county: str) -> bool:
-        logger.info("[ecclix] Selecting county: %s", county)
-        await page.goto(f"{CENTRAL_PORTAL}/ecclix/usercounties.aspx")
-        await page.wait_for_load_state("networkidle")
-        
-        links = await page.query_selector_all("a")
-        for link in links:
-            text = (await link.inner_text()).upper()
-            if county.upper() in text:
-                await link.click()
-                await page.wait_for_load_state("networkidle")
-                return True
-        return False
 
-    async def _search_by_date_range(self, page: Page, county: str, inst_type: str, start: str) -> list[RawRecord]:
-        await safe_goto(page, f"{CENTRAL_PORTAL}/ecclix/instrinq.aspx")
-=======
     async def _resolve_portal_base(
         self, page, county: str, username: str, password: str, *, skip_tax_nav: bool = False
     ) -> str | None:
@@ -1172,42 +1123,44 @@ class ECCLIXBatchConnector(BaseConnector):
         if not client:
             return []
         names: list[str] = []
->>>>>>> Stashed changes
         try:
-            await page.select_option(SEL_TYPE, value=inst_type)
-        except:
-            return []
-        
-        await page.fill(SEL_START, start)
-        await page.fill(SEL_END, date.today().strftime("%m/%d/%Y"))
-        await page.click(SEL_SEARCH)
-        await page.wait_for_load_state("networkidle")
-        return await self._scrape_results(page, county)
+            import json
 
-    async def _search_delinquent_taxes(self, page: Page, county: str) -> list[RawRecord]:
-        await safe_goto(page, f"{CENTRAL_PORTAL}/Public/DTAX/Bills/Search")
-        await page.click("input#Search, input[value='Search'], button:has-text('Search')")
-        await page.wait_for_load_state("networkidle")
-        return await self._scrape_results(page, county)
+            resp = (
+                client.table("ft_leads")
+                .select("owner_name,raw_payload,hot_score,source_key")
+                .in_("source_key", ["ecclix_batch", "ecclix_csv_import"])
+                .not_.is_("owner_name", "null")
+                .order("hot_score", desc=True)
+                .limit(limit * 8)
+                .execute()
+            )
+            for row in resp.data or []:
+                own = (row.get("owner_name") or "").strip()
+                if not own or not is_human_owner(own):
+                    continue
+                payload = row.get("raw_payload") or {}
+                if isinstance(payload, str):
+                    try:
+                        payload = json.loads(payload)
+                    except Exception:
+                        payload = {}
+                amt = float(
+                    payload.get("amount_due")
+                    or payload.get("tax_due")
+                    or payload.get("total_due")
+                    or 0
+                )
+                if amt < min_tax_due:
+                    continue
+                if own.lower() not in {n.lower() for n in names}:
+                    names.append(own)
+                if len(names) >= limit:
+                    break
+        except Exception as exc:
+            logger.warning("[ecclix] top owner names: %s", exc)
+        return names
 
-    async def _scrape_results(self, page: Page, county: str) -> list[RawRecord]:
-        records: list[RawRecord] = []
-        rows = await page.query_selector_all("tr.result-row, table.results tr:not(:first-child), #dgInstruments tr:not(:first-child), table[id*='GridView'] tr:not(:first-child)")
-        for row in rows[:300]:
-            try:
-                cells = await row.query_selector_all("td")
-                texts = [ (await c.inner_text()).strip() for c in cells ]
-                if len(texts) >= 3:
-                    records.append(RawRecord(source_key=self.source_key, data={
-                        "county": county, "doc_type": texts[0], "grantor": texts[1], "grantee": texts[2],
-                        "date": texts[3] if len(texts) > 3 else "", "book_page": texts[5] if len(texts) > 5 else "",
-                        "address": texts[6] if len(texts) > 6 else "Unknown",
-                    }))
-            except: continue
-        return records
-
-<<<<<<< Updated upstream
-=======
     async def _mode_name(
         self,
         page,
@@ -1279,7 +1232,6 @@ class ECCLIXBatchConnector(BaseConnector):
             logger.warning("[ecclix] address fallback: %s", exc)
         return addrs[:limit]
 
->>>>>>> Stashed changes
     def parse(self, raw: RawRecord) -> Lead:
         d = raw.data
         dt = (d.get("doc_type") or "").upper()
