@@ -302,6 +302,13 @@ class ECCLIXBatchConnector(BaseConnector):
                 await portal.goto_delinquent_tax_search(page, base)
                 if await portal.is_login_page(page):
                     continue
+                if await portal._page_has_delinquent_tax_form(page):
+                    logger.info(
+                        "[ecclix] county session ok (tax grid): %s @ %s",
+                        county,
+                        page.url,
+                    )
+                    return base
                 if await portal.session_established(page):
                     logger.info(
                         "[ecclix] county session ok (tax): %s @ %s", county, page.url
