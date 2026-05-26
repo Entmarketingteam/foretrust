@@ -47,6 +47,31 @@ uvicorn main:app --reload --port 8001
 | `RATE_LIMIT_MAX` | No | Max requests per window per IP (default: `100`) |
 | `RATE_LIMIT_WINDOW_MS` | No | Rate limit window in ms (default: `60000`) |
 
+## Lead scraper (KY distressed pipeline)
+
+Runs from repo root with **Doppler** (`foretrust-scraper` / `dev`). Never commit real `.env` secrets.
+
+**One-time Supabase:** apply pending SQL migrations so PDF metadata persists (fixes `ft_clerk_documents` upsert 404):
+
+```bash
+cd ~/Desktop/foretrust
+# If Supabase CLI is linked to this project:
+doppler run --project foretrust-scraper --config dev -- supabase db push
+# Or paste `supabase/migrations/20260525100000_ft_clerk_documents.sql` in the Supabase SQL editor and run once.
+```
+
+**Common jobs:**
+
+| Goal | Command |
+|------|---------|
+| Portal LP / deep search (per county) | `ECCLIX_COUNTIES=scott bash scripts/run-portal-intel.sh` |
+| Scenario library (24h-style) | `bash scripts/run-scenario-library-24h.sh` |
+| Party intel (ESTATE OF, Orchard, etc.) | `bash scripts/run-party-intel-24h.sh` |
+| PVA batch (Scott + Woodford) | `bash scripts/run-pva-batch-all.sh` |
+| Parallel exports (no eCCLIX) | `bash scripts/run-parallel-enrichment.sh` |
+
+Operator playbooks: `docs/ECCLIX-24H-RUN-QUEUE.md`, `docs/VETERAN-WHOLESALER-PLAYBOOK.md`, `docs/SIGNAL-INTEL-STACK.md`.
+
 ## API Overview
 
 All routes are mounted under `/api/foretrust`. Send a `GET /api/foretrust/` request to see the full list of available endpoints with descriptions.

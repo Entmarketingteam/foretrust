@@ -20,6 +20,11 @@ scheduler = AsyncIOScheduler()
 
 async def run_connector_job(source_key: str, params: dict | None = None) -> None:
     """Execute a single connector run end-to-end."""
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(message)s",
+        force=True,
+    )
     from app.connectors.registry import get_connector
     from app.proxy import proxy_manager
     from app.browser import create_browser

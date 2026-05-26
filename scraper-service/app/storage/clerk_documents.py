@@ -79,15 +79,9 @@ def parse_consideration(text: str) -> float | None:
 
 
 def extract_address_from_legal(legal: str) -> str | None:
-    if not legal:
-        return None
-    m = re.search(
-        r"(\d{1,6}\s+[A-Za-z0-9\s.#]+(?:Street|St|Avenue|Ave|Road|Rd|Drive|Dr|Lane|Ln|"
-        r"Way|Court|Ct|Pike|Blvd|Boulevard)(?:\s+[A-Za-z]+)?)",
-        legal,
-        re.IGNORECASE,
-    )
-    return m.group(1).strip() if m else None
+    from app.pipeline.property_address import extract_address_from_legal as _extract
+
+    return _extract(legal)
 
 
 def parse_recorded_date(text: str) -> date | None:

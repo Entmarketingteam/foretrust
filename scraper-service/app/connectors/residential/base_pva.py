@@ -116,6 +116,11 @@ _ACRES_SELECTORS = [
     "[data-field='acres']", ".acres",
     "th:has-text('Acres') + td", "th:has-text('Lot Size') + td",
 ]
+_SITE_ADDRESS_SELECTORS = [
+    "[data-field='property_address']", "[data-field='situs_address']",
+    "th:has-text('Property Address') + td", "th:has-text('Location') + td",
+    "th:has-text('Situs Address') + td", "th:has-text('Site Address') + td",
+]
 
 
 async def _first_text(page: Page, selectors: list[str]) -> str:
@@ -188,9 +193,20 @@ class BasePVAConnector(BaseConnector):
 
     async def _lookup(self, page: Page, query: str, search_by: str = "address") -> RawRecord | None:
         """Search for a property and extract full detail."""
+        from app.captcha import detect_and_solve_captcha
+
         search_url = f"{self.base_url}{self.search_path}"
         await safe_goto(page, search_url)
         await human_delay(1.5, 2.5)
+
+        if not await self._wait_portal_ready(page):
+            logger.warning("[%s] Portal not ready (CF/bot wall) at %s", self.source_key, search_url)
+            return None
+
+        try:
+            await detect_and_solve_captcha(page)
+        except Exception as exc:
+            logger.debug("[%s] captcha pass: %s", self.source_key, exc)
 
         # Locate search input
         input_sel = (
@@ -247,9 +263,16 @@ class BasePVAConnector(BaseConnector):
         land_use = await _first_text(page, _LAND_USE_SELECTORS)
         deed_ref = await _first_text(page, _DEED_SELECTORS)
         homestead = await _first_text(page, _HOMESTEAD_SELECTORS)
+        site_addr = await _first_text(page, _SITE_ADDRESS_SELECTORS)
 
         if owner:
             data["owner_name"] = owner
+        if site_addr:
+            from app.pipeline.property_address import normalize_property_address
+
+            clean = normalize_property_address(site_addr)
+            if clean:
+                data["property_address"] = clean
         if mailing:
             data["mailing_address"] = mailing
         if parcel:
@@ -304,7 +327,11 @@ class BasePVAConnector(BaseConnector):
             data["improvement_value"] = parse_currency(impr_val_text)
 
         # --- Sales / Transfer History ---
-        sales_history = await self._extract_sales_history(page)
+        try:
+            sales_history = await self._extract_sales_history(page)
+        except Exception as exc:
+            logger.debug("[%s] sales history skipped: %s", self.source_key, exc)
+            sales_history = []
         if sales_history:
             data["sales_history"] = sales_history
             # Convenience: last sale date + price
@@ -312,9 +339,17 @@ class BasePVAConnector(BaseConnector):
             data["last_sale_price"] = sales_history[0].get("price")
             data["last_sale_grantor"] = sales_history[0].get("grantor")
             data["last_sale_grantee"] = sales_history[0].get("grantee")
+            date_s = str(sales_history[0].get("date") or "")
+            m = re.search(r"(20\d{2}|19\d{2})", date_s)
+            if m:
+                data["last_sale_year"] = int(m.group(1))
 
         # --- Tax History (delinquency is a HIGH distress signal) ---
-        tax_history = await self._extract_tax_history(page)
+        try:
+            tax_history = await self._extract_tax_history(page)
+        except Exception as exc:
+            logger.debug("[%s] tax history skipped: %s", self.source_key, exc)
+            tax_history = []
         if tax_history:
             data["tax_history"] = tax_history
             delinquent_years = [
@@ -333,6 +368,30 @@ class BasePVAConnector(BaseConnector):
 
         return RawRecord(source_key=self.source_key, data=data)
 
+    async def _wait_portal_ready(self, page: Page, timeout_sec: int = 60) -> bool:
+        """Wait out Cloudflare / bot interstitials until search UI is usable."""
+        for _ in range(max(1, timeout_sec // 2)):
+            title = (await page.title() or "").lower()
+            blocked = any(
+                x in title
+                for x in ("just a moment", "attention required", "verify you are human")
+            )
+            inp = await page.query_selector(
+                "input#address, input[name='address'], input#owner, "
+                "input[name='owner'], input#search, input[type='text']"
+            )
+            if inp and not blocked:
+                return True
+            if blocked:
+                try:
+                    from app.captcha import detect_and_solve_captcha
+
+                    await detect_and_solve_captcha(page)
+                except Exception:
+                    pass
+            await human_delay(2.0, 3.0)
+        return False
+
     async def _extract_sales_history(self, page: Page) -> list[dict]:
         """Extract transfer/sales history table."""
         entries: list[dict] = []
@@ -341,8 +400,13 @@ class BasePVAConnector(BaseConnector):
         for tab_text in ["Sales History", "Transfer History", "Transfers", "Sales"]:
             tab = await page.query_selector(f"a:has-text('{tab_text}'), button:has-text('{tab_text}')")
             if tab:
-                await tab.click()
-                await human_delay(0.8, 1.5)
+                try:
+                    if not await tab.is_visible():
+                        continue
+                    await tab.click(timeout=5000)
+                    await human_delay(0.8, 1.5)
+                except Exception:
+                    continue
                 break
 
         rows = await page.query_selector_all(
@@ -379,8 +443,13 @@ class BasePVAConnector(BaseConnector):
         for tab_text in ["Tax History", "Tax Information", "Taxes"]:
             tab = await page.query_selector(f"a:has-text('{tab_text}'), button:has-text('{tab_text}')")
             if tab:
-                await tab.click()
-                await human_delay(0.8, 1.5)
+                try:
+                    if not await tab.is_visible():
+                        continue
+                    await tab.click(timeout=5000)
+                    await human_delay(0.8, 1.5)
+                except Exception:
+                    continue
                 break
 
         rows = await page.query_selector_all(
@@ -479,7 +548,9 @@ class BasePVAConnector(BaseConnector):
             lead_type=lead_type,
             owner_name=data.get("owner_name"),
             mailing_address=mailing,
-            property_address=data.get("search_query") if data.get("source") == "pva_detail" else None,
+            property_address=data.get("property_address") or (
+                data.get("search_query") if data.get("source") == "pva_detail" else None
+            ),
             city=self.city_name,
             state="KY",
             parcel_number=data.get("parcel_number"),

@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from app.pipeline.investment_scorer import is_human_owner, score_from_lead_data
+from app.pipeline.property_address import sanitize_lead_address, sanitize_tax_row
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +38,7 @@ def lead_from_supabase_row(row: dict[str, Any]) -> dict[str, Any]:
         "hot_score": row.get("hot_score"),
     }
     merged["investment_scores"] = score_from_lead_data(merged)
-    return merged
+    return sanitize_lead_address(merged)
 
 
 async def fetch_distress_leads(
@@ -78,6 +79,11 @@ def rank_deals(leads: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
         "short_sale": [],
         "fha_203k": [],
         "creative_finance": [],
+        "subject_to": [],
+        "seller_financing": [],
+        "lease_option": [],
+        "probate_creative": [],
+        "judicial_tax_sale": [],
         "wholesale": [],
         "stacked_signals": [],
     }
@@ -98,6 +104,17 @@ def rank_deals(leads: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
             buckets["fha_203k"].append(lead)
         if scores.get("creative_score", 0) >= 70:
             buckets["creative_finance"].append(lead)
+        if scores.get("subto", 0) >= 65:
+            buckets["subject_to"].append(lead)
+        if scores.get("seller_finance", 0) >= 65:
+            buckets["seller_financing"].append(lead)
+        if scores.get("lease_option", 0) >= 60:
+            buckets["lease_option"].append(lead)
+        scenarios = scores.get("creative_scenarios") or []
+        if any(s in scenarios for s in ("quit_claim_heir_dump", "free_clear_senior_tax_delinquent", "life_estate_remainder")):
+            buckets["probate_creative"].append(lead)
+        if scores.get("judicial", 0) >= 60 or scores.get("tax_deed", 0) >= 65:
+            buckets["judicial_tax_sale"].append(lead)
         if scores.get("wholesale_score", 0) >= 70:
             buckets["wholesale"].append(lead)
         if lead.get("lp_active") and due >= 500:
@@ -123,69 +140,31 @@ async def enrich_with_pva(
     county: str = "scott",
     max_enrich: int = 35,
 ) -> list[dict[str, Any]]:
-    """qPublic owner search for top leads missing PVA fields."""
-    from app.connectors.registry import get_connector
+    """qPublic enrich — prefer valid situs addresses over owner-only."""
+    from app.pipeline.pva_enrichment import enrich_leads_with_pva
 
-    key = f"{county.lower()}_pva"
-    try:
-        conn = get_connector(key)()
-    except KeyError:
-        logger.warning("No PVA connector for %s", county)
-        return leads
-
-    to_enrich = [
-        l for l in leads
-        if is_human_owner(l.get("owner_name"))
-        and not l.get("year_built")
-    ][:max_enrich]
-
-    if not to_enrich:
-        return leads
-
-    names = list({l["owner_name"] for l in to_enrich if l.get("owner_name")})
-    params = {"names": names, "limit": max_enrich}
-    try:
-        raw = await conn.fetch(browser, params)
-        by_owner: dict[str, dict] = {}
-        for rec in raw:
-            d = rec.data
-            on = (d.get("owner_name") or "").upper()
-            if on and on not in by_owner:
-                by_owner[on] = d
-        for lead in leads:
-            on = (lead.get("owner_name") or "").upper()
-            pva = by_owner.get(on)
-            if not pva:
-                continue
-            for field in (
-                "property_address", "parcel_number", "year_built",
-                "building_sqft", "assessed_value", "last_sale_price",
-                "last_sale_year", "mailing_address", "tax_delinquent",
-            ):
-                if pva.get(field) and not lead.get(field):
-                    lead[field] = pva.get(field)
-            if pva.get("assessed_value"):
-                lead["estimated_value"] = pva["assessed_value"]
-            lead["pva_enriched"] = True
-            lead["investment_scores"] = score_from_lead_data(lead)
-    except Exception as exc:
-        logger.error("PVA enrich failed: %s", exc)
-    return leads
+    cleaned = [sanitize_lead_address(l) for l in leads]
+    updated, _ = await enrich_leads_with_pva(
+        browser, cleaned, county=county, max_enrich=max_enrich
+    )
+    return updated
 
 
 def write_deal_report(
     buckets: dict[str, list[dict[str, Any]]],
     *,
     out_dir: Path | None = None,
+    county_label: str = "Scott",
 ) -> Path:
     out_dir = out_dir or EXPORT_DIR
     out_dir.mkdir(parents=True, exist_ok=True)
     stamp = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
-    md_path = out_dir / f"best-deals-{stamp}.md"
-    json_path = out_dir / f"best-deals-{stamp}.json"
+    slug = county_label.lower().replace(" ", "-")
+    md_path = out_dir / f"best-deals-{slug}-{stamp}.md"
+    json_path = out_dir / f"best-deals-{slug}-{stamp}.json"
 
     lines = [
-        "# Pre-MLS Best Deals — Scott County KY",
+        f"# Pre-MLS Best Deals — {county_label} County KY",
         f"Generated: {stamp} UTC",
         "",
         "Use **pre_mls_homebuyer** + **short_sale** for FHA 203k / conventional owner-occupant.",
@@ -245,7 +224,7 @@ async def build_best_deals_package(
     if enrich_pva and browser:
         leads = await enrich_with_pva(browser, leads, county=county, max_enrich=pva_limit)
     buckets = rank_deals(leads)
-    report_path = write_deal_report(buckets)
+    report_path = write_deal_report(buckets, county_label=county.title())
     return {
         "total_leads": len(leads),
         "report_md": str(report_path),

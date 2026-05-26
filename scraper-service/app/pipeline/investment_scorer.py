@@ -55,6 +55,10 @@ def score_from_lead_data(data: dict[str, Any]) -> dict[str, int]:
     assessed = _float(data.get("estimated_value") or data.get("assessed_value"))
     last_sale = _float(data.get("last_sale_price"))
     last_sale_year = _int(data.get("last_sale_year"))
+    if not last_sale_year and data.get("last_sale_date"):
+        m = re.search(r"(20\d{2}|19\d{2})", str(data.get("last_sale_date")))
+        if m:
+            last_sale_year = int(m.group(1))
     year_built = _int(data.get("year_built"))
     amount_due = _float(data.get("amount_due") or data.get("tax_amount_due"))
     sqft = _int(data.get("building_sqft") or data.get("living_sqft"))
@@ -179,7 +183,7 @@ def score_from_lead_data(data: dict[str, Any]) -> dict[str, int]:
     if inst == "LP" and human:
         pre_mls += 5
 
-    return {
+    base = {
         "wholesale_score": _clamp(wholesale),
         "creative_score": _clamp(creative),
         "fha_203k_score": _clamp(fha_203k),
@@ -190,10 +194,31 @@ def score_from_lead_data(data: dict[str, Any]) -> dict[str, int]:
         "is_human_owner": human,
         "has_street_address": has_street,
     }
+    payload = {**data, **base}
+    from app.pipeline.creative_finance_signals import (
+        detect_scenarios,
+        extended_strategy_scores,
+        primary_creative_play,
+    )
+
+    ext = extended_strategy_scores(payload)
+    scenarios = detect_scenarios(payload)
+    # Fold highest creative plays into legacy creative_score for sorting
+    creative = max(creative, ext.get("subto", 0), ext.get("seller_finance", 0), ext.get("wrap", 0))
+    base["creative_score"] = _clamp(creative)
+    base["creative_scenarios"] = scenarios
+    base["primary_creative_play"] = primary_creative_play(payload)
+    base.update(ext)
+    return base
 
 
-def best_strategy(scores: dict[str, int]) -> str:
+def best_strategy(scores: dict[str, Any]) -> str:
     """Return primary outreach strategy label."""
+    play = scores.get("primary_creative_play")
+    if play and play not in ("monitor", "land_only_lower_priority"):
+        ext_keys = ("subto", "seller_finance", "wrap", "novation", "lease_option", "judicial")
+        if any(scores.get(k, 0) >= 65 for k in ext_keys):
+            return f"creative_{play}"
     ranked = [
         ("short_sale", scores.get("short_sale_score", 0), 72),
         ("fha_203k", scores.get("fha_203k_score", 0), 75),

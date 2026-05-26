@@ -1,0 +1,150 @@
+---
+description: KY distressed-property pipeline — data layout, scoring rubric, list stacking, eCCLIX ops. Read pipeline-status.json before inventing counts.
+globs: ["**/*.py", "**/*.md", "**/*.json", "scraper-service/**", "scripts/**", "docs/**"]
+alwaysApply: true
+---
+
+# Kentucky Distressed Leads — Cursor Operator Brain
+
+Foretrust repo: multi-source distressed residential lead pipeline for **Scott, Bourbon, Franklin, Woodford** counties, KY. Goal: high-conviction leads with exit strategy (wholesale, sub-to, FHA 203k, short sale) before competitors.
+
+## 0. Read live state first
+
+**Never invent counts.** Before answering pipeline state, scoring, or lead questions:
+
+1. Open `scraper-service/exports/pipeline-status.json` (refresh: `python3 scripts/update-pipeline-status.py`)
+2. Open the newest files under paths listed in that JSON
+3. Use Section 8 output format for scored leads
+
+## 1. Data sources (repo paths)
+
+| Source | Path | Depth | Use when |
+|--------|------|-------|----------|
+| Tax actionable | `scraper-service/exports/actionable-leads/properties-{county}-*.md` | Broad — owner, address, tax due | List stacking starting point |
+| Scored instruments | `scraper-service/exports/portal-intel/{county}-filtered-*.json` | Deep — `creative_scenarios`, `primary_creative_play`, `pre_mls_score`, `short_sale_score`, `hot_tier` | What's happening on the property |
+| Scenario buckets | `scraper-service/exports/scenario-library/{county}-*/` | Deep — per-scenario README + examples + PDFs | Creative-finance plays, filter examples |
+| Master merge | `scraper-service/exports/scenario-library/MASTER/INDEX.md` | Cross-run index | Scenario counts across all runs |
+| Best deals | `scraper-service/exports/best-deals/best-deals-*.md` | Ranked stacks from Supabase | Operator priority list |
+| LP PDFs | `scraper-service/exports/ecclix/{county}/` | Document evidence | Verify distress claims |
+| **Do not use** | `scraper-service/exports/ecclix-sprint/*.csv` (old runs) | Junk / login noise | Historical comparison only |
+
+## 2. External portals
+
+| Portal | Counties | Auth | Critical rule |
+|--------|----------|------|---------------|
+| eCCLIX Central | Scott, Bourbon, Woodford, Franklin | `ECCLIX_USERNAME` / `ECCLIX_PASSWORD` (Doppler `foretrust-scraper`) | **One browser session at a time.** Parallel logins corrupt county picker. |
+| qPublic | Scott, Woodford PVA | Public | `scott_pva`, `woodford_pva` connectors |
+| KCOJ CourtNet | All 4 | `KCOJ_USERNAME` / `KCOJ_PASSWORD` | Divorce, probate, civil — separate from eCCLIX |
+| Supabase | — | `SUPABASE_URL` + service role | `ft_leads`, `ft_lead_source_runs`, `ft_clerk_documents` (apply migration `supabase/migrations/20260525100000_ft_clerk_documents.sql` if upserts 404) |
+
+Run scrapers: `doppler run --project foretrust-scraper --config dev -- …` with `no_proxy: true` for eCCLIX locally.
+
+## 3. Active jobs (don't collide)
+
+| Script | Purpose |
+|--------|---------|
+| `scripts/run-scenario-library-24h.sh` | eCCLIX lock — scenario library + pre_mls + exports per county |
+| `scripts/run-parallel-enrichment.sh` | **No eCCLIX** — exports, MASTER merge, KCOJ, legal/water, PVA in parallel |
+| `scripts/build-best-deals.py` | Rank + optional `--enrich-pva --county scott\|woodford` |
+| `scripts/export-property-lead-list.py` | Actionable CSV/MD from Supabase |
+| `scripts/export-stacked-leads.py` | Tax × instrument multi-list overlay → MD |
+| `scripts/run-pva-enrichment-batch.py` | Batch PVA → Supabase join (Scott/Woodford) |
+
+Lock file: `/tmp/foretrust-ecclix.lock` — only one eCCLIX orchestrator.
+
+## 4. Four-strategy scoring rubric (0–100 each)
+
+State equity assumptions explicitly. Cap 100, floor 0.
+
+**Equity estimation:** estate/probate 70–100% assessed; tax-lien firm foreclosing 60–100%; sale ≤4y + bank LP ~8% equity left; sale 5–10y 20–35%; sale >10y 40–70%; no sale data 0–30% conservative.
+
+**A — Cash wholesale / flip:** +25 sale >10y, +10 sale 5–10y, +15 yr<1980, +20 active LP/lien, +15 tax-lien firm, +20 probate, +10 Zillow as-is keywords, +10 absentee, +15 equity>35%, −20 equity<10%. ≥70 = strong wholesale.
+
+**B — Sub-to / creative:** +30 sale 2020–22, +15 sale 2023–24, +25 bank LP (PennyMac, Freedom, Truist, etc.), +20 equity 5–25%, +10 sale ≥$300k, +10 premium sub, −15 tax-lien firm, −10 probate. ≥70 = sub-to.
+
+**C — FHA 203k (Emily/Ethan personal):** +20 yr<1990, +20 premium/historic, +20 sale >7y, +15 distress, +20 probate, +15 as-is keywords, −20 recent low equity, −10 sale >$500k. ≥70 = manual Telegram review only — **never auto-mailer**.
+
+**D — Short sale:** +25 bank LP, +25 sale 2021–23, +20 equity<10%, +30 underwater (replaces <10%), +10 sale ≈ assessed, +10 premium sub, −20 tax-lien firm, −15 probate. ≥70 = short sale handoff.
+
+**Premium Scott subs:** Cherry Blossom Village, Canewood, Mallard Point, Bradford Place, Adena Ridge, Mount Vernon, Thoroughbred Acres, Abbey at Old Oxford, Peninsula, Ironworks Estate, Sutton Place, Paynes Landing, Elkhorn Green/Meadows, Whistler Estates, Pleasant Valley, Homestead Village, Etter Woods, Lancaster Heights, Rocky Creek Farm, Moonlake. Historic: Paynes Addition, Brickwood, Bourbon St corridor, Maddox, Payne, Montgomery, Flinn Court.
+
+Code also implements scores in `scraper-service/app/pipeline/investment_scorer.py` and `creative_finance_signals.py` — prefer live JSON fields when present.
+
+## 5. List stacking (rapid-fire wholesaler core)
+
+Properties on **3+ lists = HOT**, 2 = WARM, 1 = COLD. Conversion ~5–8% vs 1–2% single-list.
+
+| # | List | Status |
+|---|------|--------|
+| 1 | Tax delinquent | ✅ actionable MD per county |
+| 2 | Pre-foreclosure LP | ✅ portal-intel (Scott+ growing) |
+| 3 | Absentee owner | ⚠️ PVA enrich per-lead, not a list yet |
+| 4 | High equity | ⚠️ derivable, not automated |
+| 5 | City liens | ⚠️ in scenario library, not isolated |
+| 6 | Vacant | ❌ FOIA water shutoff in flight — see `docs/FOIA-WATER-SHUTOFF.md` |
+| 7 | Probate/estate | ✅ POA/fiduciary bucket |
+| 8 | Divorce/eviction | ❌ KCOJ broken selectors |
+
+**Implemented:** `scraper-service/app/pipeline/list_stack.py` + `scripts/export-stacked-leads.py` → `exports/stacked-leads/`
+
+**PVA batch:** `scripts/run-pva-enrichment-batch.py` → `app/pipeline/pva_enrichment.py`
+
+**Underwriting:** `app/pipeline/underwriting.py` (condition-adjusted PVA + offer bands)
+
+**24h playbook:** `docs/VETERAN-WHOLESALER-PLAYBOOK.md`
+
+**Build order:** PVA enrich Scott/Woodford → stack overlay → high-equity derive → KCOJ civil fix.
+
+## 6. Widening beyond current pipeline
+
+**Tier 1 public records:** KCOJ civil, probate calendars, Master Commissioner auctions, bankruptcy PACER, USPS vacancy (BatchData), Georgetown code enforcement.
+
+**Tier 2 behavioral:** tired landlord (multi-prop + eviction), senior downsize, MLS expired/withdrawn 30–90d, free-and-clear 10+ yr.
+
+**Tier 3 outbound:** SmarterContact SMS, Ballpoint/OpenLetter mail, ringless VM, Mojo dialer + BatchData skip trace.
+
+## 7. Operational rules
+
+**Don't:** parallel eCCLIX sessions; pursue sub-$100 tax bills; raw acreage without PVA structure confirm; auto-outreach 203k path; invent counts; recommend underwater contract without short-sale framing.
+
+**Do:** stack lists before recommending action; state equity assumptions; note data gaps; use scenario buckets when present; prioritize LP >60 days old (KY auction clock 4–9 months).
+
+## 8. Scored lead output format
+
+```
+PROPERTY: [address] — [subdivision]
+OWNER: [normalized]
+DISTRESS SIGNAL: [type, date, entity / tax due]
+LIST STACK: [n] lists — [names]
+HOT TIER: HOT | WARM | COLD
+PHYSICAL: [yr] | [bed/bath] | [sqft] | [acres]
+LAST SALE: [date] $[price]
+ASSESSED: $[value]
+ESTIMATED EQUITY: $[range] ([pct]%) — [assumption]
+— SCORES —
+Cash Wholesale: [n]/100 | Sub-To: [n]/100 | 203k: [n]/100 | Short Sale: [n]/100
+SCENARIO BUCKET: [from JSON]
+PRIMARY CREATIVE PLAY: [from JSON]
+RECOMMENDED: [highest ≥70] | SECONDARY: [≥60]
+WHY: [2–3 sentences]
+NEXT ACTIONS: 1. … 2. … 3. …
+DATA GAPS: [missing PVA, payoff, market, etc.]
+```
+
+## 9. Anchor cases (sanity checks)
+
+- **123 Olympia Way (Raney, Cherry Blossom)** — 2022 $500k, Truist LP → Sub-To ~90 primary
+- **228 Maddox (Evurman LLC / Marcum)** — LLC + tax + Newrez LP → Wholesale 80+
+- **Tract B Bourbon St (Hayden Estate)** — historic + estate + bank LP → Wholesale 85+ / 203k 90+
+- **10.27 Ac Leaning Oak (Pennington/Slone, Orchard tax lien)** — 8 heirs → Wholesale 95+
+
+## 10. Infrastructure
+
+- Scrapers: Playwright Python locally (Alienware via Tailscale `100.120.248.8` when deployed there)
+- Secrets: Doppler **`foretrust-scraper`** / `dev` — never `.env` with real keys
+- n8n: `entagency.app.n8n.cloud` only
+- Skip trace: BatchData primary
+
+## 11. Known gaps (check status JSON for current)
+
+See `pipeline-status.json` → `known_issues`. High-ROI next builds: list-stacking join, **apply `ft_clerk_documents` SQL migration** (see README), KCOJ selector fix, Bourbon/Franklin instrument-type probe (`ecclix_instrument_probe.py`).

@@ -10,7 +10,6 @@ from typing import Any
 from app.models import Lead, LeadType, RawRecord, Vertical
 from app.pipeline.distress_scorer import compute_hot_score
 from app.pipeline.investment_scorer import best_strategy, score_from_lead_data
-from app.pipeline.property_address import sanitize_tax_row
 
 SOURCE_KEY = "ecclix_csv_import"
 DEFAULT_COUNTY = "scott"
@@ -49,7 +48,7 @@ def parse_ecclix_delinquent_csv(path: str | Path) -> list[dict[str, Any]]:
             if not bill.isdigit():
                 continue
             amt, status = parse_amount(row[7])
-            rows.append(sanitize_tax_row({
+            rows.append({
                 "bill_number": bill,
                 "tax_year": row[2].strip().strip('"'),
                 "owner_name": row[3].strip().strip('"'),
@@ -59,7 +58,7 @@ def parse_ecclix_delinquent_csv(path: str | Path) -> list[dict[str, Any]]:
                 "status": status,
                 "detail_url": row[1].strip().strip('"') if row[1].startswith("http") else "",
                 "source_file": path.name,
-            }))
+            })
     return rows
 
 

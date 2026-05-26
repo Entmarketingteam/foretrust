@@ -51,7 +51,12 @@ def load_local_csv(paths: list[Path]) -> list[dict]:
 
 async def main() -> None:
     parser = argparse.ArgumentParser(description="Build pre-MLS best deals report")
-    parser.add_argument("--enrich-pva", action="store_true", help="qPublic owner lookup (Scott)")
+    parser.add_argument("--enrich-pva", action="store_true", help="qPublic owner lookup")
+    parser.add_argument(
+        "--county",
+        default="scott",
+        help="County for PVA enrich + report label (scott, woodford)",
+    )
     parser.add_argument("--pva-limit", type=int, default=30)
     parser.add_argument(
         "--csv",
@@ -75,7 +80,10 @@ async def main() -> None:
     if args.enrich_pva:
         async with create_browser() as browser:
             result = await build_best_deals_package(
-                browser, enrich_pva=True, pva_limit=args.pva_limit
+                browser,
+                enrich_pva=True,
+                county=args.county.lower(),
+                pva_limit=args.pva_limit,
             )
             print(result)
             return

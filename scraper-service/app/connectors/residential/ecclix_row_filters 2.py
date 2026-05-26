@@ -5,22 +5,6 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from app.pipeline.creative_finance_signals import (
-    ABSENTEE_MAIL,
-    ASSIGNMENT_CHAIN,
-    CONTRACT_FOR_DEED,
-    DIVORCE_QDRO,
-    HELOC_SECOND,
-    LEASE_OPTION,
-    LIFE_ESTATE,
-    LOAN_MODIFICATION,
-    POA_FIDUCIARY,
-    QUIT_CLAIM_DISTRESS,
-    REHAB_STALL,
-    RELEASE_OF_LP,
-    SHERIFF_MASTER,
-    UCC_EQUIPMENT,
-)
 from app.pipeline.investment_scorer import is_human_owner
 
 # Premium Central KY subdivisions (big-home / 203k targets)
@@ -52,25 +36,6 @@ BANK_PARTY = re.compile(
     r"freedom\s*mortgage|shellpoint|pnc|u\s*s\s*bank|veterans\s*united",
     re.I,
 )
-TAX_LIEN_BUYER = re.compile(
-    r"orchard\s+tax|east\s+coast\s+tax|lien\s+works|tax\s+lien\s+services",
-    re.I,
-)
-
-
-def _safe_float(v: Any) -> float | None:
-    if v is None:
-        return None
-    s = str(v).strip()
-    if not s or not re.search(r"\d", s):
-        return None
-    m = re.search(r"[\d,]+\.?\d*", s.replace("$", ""))
-    if not m:
-        return None
-    try:
-        return float(m.group(0).replace(",", ""))
-    except ValueError:
-        return None
 
 
 def _text_blob(row: dict[str, Any]) -> str:
@@ -101,8 +66,8 @@ def apply_filters(
     blob = _text_blob(row)
     owner = row.get("owner_name") or row.get("grantor") or ""
     inst = (row.get("instrument_type") or "").upper()
-    due = _safe_float(row.get("amount_due")) or 0.0
-    cons = _safe_float(row.get("consideration_amount") or row.get("consideration")) or 0.0
+    due = float(row.get("amount_due") or 0)
+    cons = float(row.get("consideration_amount") or row.get("consideration") or 0)
 
     for tag in filter_tags:
         if tag == "human_owner_only":
@@ -157,11 +122,6 @@ def apply_filters(
                 return False, ["not_foreclosure_lp"]
             reasons.append("foreclosure_lp")
 
-        elif tag == "tax_lien_firm":
-            if not TAX_LIEN_BUYER.search(blob):
-                return False, ["not_institutional_tax_buyer"]
-            reasons.append("tax_lien_buyer")
-
         elif tag == "bank_counterparty":
             grantee = row.get("grantee") or ""
             if not BANK_PARTY.search(blob) and not BANK_PARTY.search(grantee):
@@ -187,89 +147,6 @@ def apply_filters(
             ):
                 return False, ["no_distress_signal"]
             reasons.append("distress")
-
-        elif tag == "subto_candidate":
-            if not (
-                (inst == "LP" or FORECLOSURE_LEGAL.search(blob))
-                and (BANK_PARTY.search(blob) or due >= 500)
-            ):
-                return False, ["not_subto"]
-            reasons.append("subto_candidate")
-
-        elif tag == "seller_finance_deed":
-            if not (
-                inst in ("DEED", "QDEED", "COD")
-                or CONTRACT_FOR_DEED.search(blob)
-                or QUIT_CLAIM_DISTRESS.search(blob)
-            ):
-                return False, ["not_seller_finance_deed"]
-            reasons.append("seller_finance_deed")
-
-        elif tag == "lease_option_signal":
-            if not LEASE_OPTION.search(blob):
-                return False, ["no_lease_option"]
-            reasons.append("lease_option")
-
-        elif tag == "assignment_wholesale":
-            if not ASSIGNMENT_CHAIN.search(blob):
-                return False, ["no_assignment"]
-            reasons.append("assignment")
-
-        elif tag == "loan_mod_signal":
-            if not LOAN_MODIFICATION.search(blob):
-                return False, ["no_loan_mod"]
-            reasons.append("loan_mod")
-
-        elif tag == "release_after_lp":
-            if not (inst == "REL" and RELEASE_OF_LP.search(blob)):
-                return False, ["not_lp_release"]
-            reasons.append("lp_release")
-
-        elif tag == "poa_guardian":
-            if not POA_FIDUCIARY.search(blob):
-                return False, ["no_poa_guardian"]
-            reasons.append("poa_guardian")
-
-        elif tag == "rehab_mlien":
-            if not (inst == "MLIEN" or REHAB_STALL.search(blob)):
-                return False, ["no_rehab_mlien"]
-            reasons.append("rehab_mlien")
-
-        elif tag == "second_lien":
-            if not HELOC_SECOND.search(blob):
-                return False, ["no_second_lien"]
-            reasons.append("second_lien")
-
-        elif tag == "judicial_sale":
-            if not SHERIFF_MASTER.search(blob):
-                return False, ["no_judicial_sale"]
-            reasons.append("judicial_sale")
-
-        elif tag == "nominal_consideration":
-            if not cons or cons >= 75_000:
-                return False, ["not_nominal"]
-            reasons.append(f"nominal_{cons:.0f}")
-
-        elif tag == "life_estate":
-            if not LIFE_ESTATE.search(blob):
-                return False, ["no_life_estate"]
-            reasons.append("life_estate")
-
-        elif tag == "divorce_qdro":
-            if not DIVORCE_QDRO.search(blob):
-                return False, ["no_divorce_qdro"]
-            reasons.append("divorce_qdro")
-
-        elif tag == "ucc_fixture":
-            if not UCC_EQUIPMENT.search(blob):
-                return False, ["no_ucc"]
-            reasons.append("ucc_fixture")
-
-        elif tag == "absentee_owner":
-            addr = row.get("property_address") or blob
-            if not ABSENTEE_MAIL.search(addr) and not ABSENTEE_MAIL.search(blob):
-                return False, ["not_absentee"]
-            reasons.append("absentee")
 
     if min_tax_due and due < min_tax_due:
         return False, ["below_min_tax"]

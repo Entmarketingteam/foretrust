@@ -39,6 +39,7 @@ def _load_all() -> None:
     import app.connectors.residential.kcoj_courtnet  # noqa: F401
     import app.connectors.residential.fayette_pva  # noqa: F401
     import app.connectors.residential.scott_pva  # noqa: F401
+    import app.connectors.residential.woodford_pva  # noqa: F401
     import app.connectors.residential.oldham_pva  # noqa: F401
     import app.connectors.residential.zillow_public  # noqa: F401
     import app.connectors.residential.ecclix_batch  # noqa: F401

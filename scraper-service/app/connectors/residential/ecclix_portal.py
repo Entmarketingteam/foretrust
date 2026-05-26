@@ -17,6 +17,7 @@ from typing import Any
 
 from app.browser import human_delay, human_type, safe_goto
 from app.captcha import detect_and_solve_captcha
+from app.pipeline.property_address import sanitize_tax_row
 
 logger = logging.getLogger(__name__)
 
@@ -27,14 +28,13 @@ MENU_LINKED_DOCUMENT = "Linked Document Search"
 MENU_DELINQUENT_TAX = "Delinquent Tax"
 
 # Direct URL fallbacks (county builds vary)
-INDEX_SEARCH_PATHS = (
-    "/ecclix/indexinq.aspx",
-    "/ecclix/instrinq.aspx",
-)
+# Central KY: indexinq.aspx returns HttpException — use instrinq only.
+INDEX_SEARCH_PATHS = ("/ecclix/instrinq.aspx",)
 COMBINATION_PARTY_PATHS = (
-    "/ecclix/combpartyinq.aspx",
-    "/ecclix/cpartyinq.aspx",
+    "/ecclix/combinationpartybydatedocumenttype.aspx",
     "/ecclix/combpartysrch.aspx",
+    "/ecclix/cpartyinq.aspx",
+    "/ecclix/combpartyinq.aspx",
 )
 LINKED_DOCUMENT_PATHS = (
     "/ecclix/linkdocinq.aspx",
@@ -44,6 +44,23 @@ LINKED_DOCUMENT_PATHS = (
 DELINQUENT_TAX_PATHS: tuple[str, ...] = ()
 
 # Nav: Welcome | Instruments ▼ | Securities | Delinquent Tax | Subscriptions | Setup | Logout
+
+
+async def _portal_click(target) -> None:
+    """Click through sticky ASP.NET headers / off-viewport controls."""
+    # Prefer JS click — Playwright ElementHandle still throws viewport errors on ASP.NET.
+    try:
+        await target.evaluate(
+            "el => { el.click(); el.dispatchEvent?.(new Event('change', { bubbles: true })); }"
+        )
+        return
+    except Exception:
+        pass
+    try:
+        await target.scroll_into_view_if_needed(timeout=5000)
+    except Exception:
+        pass
+    await target.click(force=True, timeout=15000)
 
 
 async def is_login_page(page) -> bool:
@@ -81,7 +98,7 @@ async def select_county_if_needed(page, county: str) -> bool:
         logger.warning("[ecclix] no 'Search %s Records' link", name)
         return False
     try:
-        await loc.first.click()
+        await _portal_click(loc.first)
         await page.wait_for_function(
             "() => !window.location.href.toLowerCase().includes('usercounties.aspx')",
             timeout=45000,
@@ -119,7 +136,7 @@ async def login(page, portal_base: str, username: str, password: str) -> None:
             break
         sub = page.get_by_role("link", name=re.compile(r"subscriber\s+login", re.I))
         if await sub.count() > 0:
-            await sub.first.click()
+            await _portal_click(sub.first)
             await human_delay(1.5, 2.5)
             break
     await human_delay(1.0, 2.0)
@@ -159,7 +176,7 @@ async def login(page, portal_base: str, username: str, password: str) -> None:
         page.locator("input[type='image'][alt*='Log' i]"),
     ):
         if await btn.count() > 0:
-            await btn.first.click()
+            await _portal_click(btn.first)
             break
     try:
         await page.wait_for_url(
@@ -186,24 +203,125 @@ async def login(page, portal_base: str, username: str, password: str) -> None:
         logger.info("[ecclix] login ok base=%s url=%s", base, page.url)
 
 
+async def _page_has_http_exception(page) -> bool:
+    try:
+        body = (await page.inner_text("body"))[:4000]
+    except Exception:
+        return False
+    return "HttpException" in body or "Exception Type:" in body
+
+
 async def _page_has_index_search_form(page) -> bool:
     """Detect Type + date search form (Index / Instrument Search)."""
+    if await _page_has_http_exception(page):
+        return False
     url = (page.url or "").lower()
-    if "instrinq" in url or "indexinq" in url:
-        return True
+    if "instrinq" in url:
+        if await page.query_selector("select[name*='uceType' i]"):
+            return True
+    if "indexinq" in url:
+        return not await _page_has_http_exception(page)
     body = ""
     try:
         body = await page.inner_text("body")
     except Exception:
         return False
-    if re.search(r"Between\s+Dates", body, re.I):
+    if re.search(r"Between\s+Dates", body, re.I) and re.search(
+        r"By\s+Book/Type|Instrument\s+Search", body, re.I
+    ):
         return True
     if re.search(r"Instrument\s+Type|Type\s+of\s+Instrument", body, re.I):
         return True
     if await page.get_by_label("Beginning Date").count() > 0:
         return True
-    if await page.query_selector("select[name*='Type' i], select[id*='Type' i]"):
+    if await page.query_selector(
+        "select[name*='uceType' i], select[name*='Type' i], select[id*='Type' i]"
+    ):
         return True
+    return False
+
+
+async def _page_has_combination_party_form(page) -> bool:
+    """Combination Party Search form (not Index Search / instrinq)."""
+    if await _page_has_http_exception(page):
+        return False
+    url = (page.url or "").lower()
+    if any(
+        p in url
+        for p in (
+            "combinationpartybydatedocumenttype",
+            "combpartysrch",
+            "cpartyinq",
+            "combpartyinq",
+            "combparty",
+        )
+    ):
+        return True
+    try:
+        body = (await page.inner_text("body"))[:6000]
+    except Exception:
+        body = ""
+    if re.search(r"combination\s+party", body, re.I):
+        return True
+    if re.search(r"party\s+one|party\s+1", body, re.I) and re.search(
+        r"between\s+dates|beginning\s+date", body, re.I
+    ):
+        return True
+    if await page.query_selector(
+        "input[name*='PartyOne' i], input[id*='PartyOne' i], "
+        "input[name*='Party1' i], input[id*='txtParty' i]"
+    ):
+        return True
+    return False
+
+
+async def _set_input_value(page, selector: str, value: str) -> bool:
+    """Set input via JS (no viewport actionability)."""
+    return bool(
+        await page.evaluate(
+            """([sel, val]) => {
+                const el = document.querySelector(sel);
+                if (!el || el.disabled || el.type === 'hidden') return false;
+                el.value = val;
+                el.dispatchEvent(new Event('input', { bubbles: true }));
+                el.dispatchEvent(new Event('change', { bubbles: true }));
+                return true;
+            }""",
+            [selector, value],
+        )
+    )
+
+
+async def _set_party_name(page, party_name: str) -> bool:
+    """Fill Party One on combination-party or index search."""
+    if await page.evaluate(
+        """(name) => {
+            const inputs = document.querySelectorAll(
+                'input[name*="PartyOne" i], input[id*="PartyOne" i], '
+                + 'input[name*="Party1" i], input[id*="Party1" i], '
+                + 'input[name*="PartyName" i], input[id*="txtParty" i], '
+                + 'input[name*="Party" i]'
+            );
+            for (const inp of inputs) {
+                if (!inp || inp.disabled || inp.type === 'hidden') continue;
+                const id = (inp.id || '').toLowerCase();
+                const nm = (inp.name || '').toLowerCase();
+                if (nm.includes('party2') || id.includes('party2')) continue;
+                inp.value = name;
+                inp.dispatchEvent(new Event('input', { bubbles: true }));
+                inp.dispatchEvent(new Event('change', { bubbles: true }));
+                return true;
+            }
+            return false;
+        }""",
+        party_name,
+    ):
+        return True
+    for label in ("Party One", "Party 1", "Party Name"):
+        loc = page.get_by_label(label)
+        if await loc.count() > 0:
+            await loc.first.fill(party_name, force=True)
+            return True
     return False
 
 
@@ -224,6 +342,30 @@ async def session_established(page) -> bool:
 
 async def _navigate_instruments_submenu(page, menu_label: str) -> bool:
     """Click Instruments ▼ → submenu item."""
+    if menu_label == MENU_INDEX_SEARCH:
+        instr = page.locator("a[href*='instrinq.aspx' i]")
+        if await instr.count() > 0:
+            await _portal_click(instr.first)
+            await human_delay(1.5, 2.5)
+            logger.info("[ecclix] menu → instrinq url=%s", page.url)
+            return True
+
+    if menu_label == MENU_COMBINATION_PARTY:
+        for loc in (
+            page.locator("a[href*='combinationpartybydatedocumenttype.aspx' i]"),
+            page.locator("a[href*='combpartysrch.aspx' i]"),
+            page.locator("a[href*='cpartyinq.aspx' i]"),
+            page.locator("a[href*='combpartyinq.aspx' i]"),
+            page.get_by_role(
+                "link", name=re.compile(r"Combination\s+Party", re.I)
+            ),
+        ):
+            if await loc.count() > 0:
+                await _portal_click(loc.first)
+                await human_delay(1.5, 2.5)
+                logger.info("[ecclix] menu → combination party url=%s", page.url)
+                return True
+
     patterns = [
         page.get_by_role("link", name=re.compile(re.escape(menu_label), re.I)),
         page.get_by_role("menuitem", name=re.compile(re.escape(menu_label), re.I)),
@@ -231,9 +373,9 @@ async def _navigate_instruments_submenu(page, menu_label: str) -> bool:
     ]
     for loc in patterns:
         if await loc.count() > 0:
-            await loc.first.click()
+            await _portal_click(loc.first)
             try:
-                await page.wait_for_load_state("networkidle", timeout=30000)
+                await page.wait_for_load_state("domcontentloaded", timeout=30000)
             except Exception:
                 pass
             await human_delay(1.5, 2.5)
@@ -243,11 +385,11 @@ async def _navigate_instruments_submenu(page, menu_label: str) -> bool:
     # Expand Instruments dropdown first
     inst = page.get_by_role("link", name=re.compile(r"^Instruments\b", re.I))
     if await inst.count() > 0:
-        await inst.first.click()
+        await _portal_click(inst.first)
         await human_delay(0.6, 1.0)
     for loc in patterns:
         if await loc.count() > 0:
-            await loc.first.click()
+            await _portal_click(loc.first)
             await human_delay(1.5, 2.5)
             logger.info("[ecclix] menu Instruments → %s", menu_label)
             return True
@@ -255,23 +397,51 @@ async def _navigate_instruments_submenu(page, menu_label: str) -> bool:
 
 
 async def _open_search_page(page, portal_base: str, paths: tuple[str, ...], menu_label: str) -> None:
+    if menu_label == MENU_INDEX_SEARCH and await _page_has_index_search_form(page):
+        return
+    if menu_label == MENU_COMBINATION_PARTY and await _page_has_combination_party_form(page):
+        return
+
     base = portal_base.rstrip("/")
     for path in paths:
         await safe_goto(page, f"{base}{path}")
         await human_delay(1.2, 2.0)
-        if await _page_has_index_search_form(page) or menu_label != MENU_INDEX_SEARCH:
+        if await _page_has_http_exception(page):
+            continue
+        if menu_label == MENU_COMBINATION_PARTY and await _page_has_combination_party_form(page):
+            logger.info("[ecclix] combination party form url=%s", page.url)
+            return
+        if menu_label == MENU_INDEX_SEARCH and await _page_has_index_search_form(page):
             return
 
     if await _navigate_instruments_submenu(page, menu_label):
-        return
+        if menu_label == MENU_COMBINATION_PARTY and await _page_has_combination_party_form(page):
+            return
+        if menu_label == MENU_INDEX_SEARCH and await _page_has_index_search_form(page):
+            return
 
     # Legacy label on some counties
     if menu_label == MENU_INDEX_SEARCH:
         await _navigate_instruments_submenu(page, "Instrument Search")
 
 
+async def _ensure_instrinq_search(page, portal_base: str) -> None:
+    """Recover from broken indexinq.aspx or wrong module (tax page)."""
+    base = portal_base.rstrip("/")
+    url = (page.url or "").lower()
+    if "indexinq" in url or await _page_has_http_exception(page):
+        await safe_goto(page, f"{base}/ecclix/instrinq.aspx")
+        await human_delay(1.2, 2.0)
+    elif not await _page_has_index_search_form(page):
+        await safe_goto(page, f"{base}/ecclix/instrinq.aspx")
+        await human_delay(1.2, 2.0)
+
+
 async def goto_index_search(page, portal_base: str) -> None:
     """Open Index Search (Type + Between Dates) — primary wholesale form."""
+    await _ensure_instrinq_search(page, portal_base)
+    if await _page_has_index_search_form(page):
+        return
     await _open_search_page(page, portal_base, INDEX_SEARCH_PATHS, MENU_INDEX_SEARCH)
     if not await _page_has_index_search_form(page):
         logger.warning("[ecclix] Index Search form not detected url=%s", page.url)
@@ -279,9 +449,18 @@ async def goto_index_search(page, portal_base: str) -> None:
 
 async def goto_combination_party_search(page, portal_base: str) -> None:
     """Open Combination Party Search for grantor/grantee name queries."""
+    # Menu navigation preserves county session; bare URL often drops back to instrinq.
+    if await _navigate_instruments_submenu(page, MENU_COMBINATION_PARTY):
+        if await _page_has_combination_party_form(page):
+            return
     await _open_search_page(
         page, portal_base, COMBINATION_PARTY_PATHS, MENU_COMBINATION_PARTY
     )
+    if await _page_has_combination_party_form(page):
+        return
+    base = portal_base.rstrip("/")
+    await safe_goto(page, f"{base}/ecclix/combinationpartybydatedocumenttype.aspx")
+    await human_delay(1.2, 2.0)
 
 
 async def goto_instrument_search(page, portal_base: str) -> None:
@@ -314,11 +493,11 @@ async def goto_delinquent_tax_search(page, portal_base: str) -> None:
     # Delinquent Tax may be a dropdown on some county builds
     dt = page.get_by_role("link", name=re.compile(r"Delinquent\s+Tax", re.I))
     if await dt.count() > 0:
-        await dt.first.click()
+        await _portal_click(dt.first)
         await human_delay(0.8, 1.2)
         idx = page.get_by_role("link", name=re.compile(r"Index\s+Search", re.I))
         if await idx.count() > 0:
-            await idx.first.click()
+            await _portal_click(idx.first)
             await human_delay(1.5, 2.5)
         else:
             await human_delay(1.0, 1.5)
@@ -334,9 +513,14 @@ async def goto_delinquent_tax_search(page, portal_base: str) -> None:
 
 
 async def goto_securities_search(page, portal_base: str) -> None:
-    """Securities → Index Search (city liens, judgments)."""
+    """City lien party filters — use instrinq (indexinq 500s on Central)."""
+    await _ensure_instrinq_search(page, portal_base)
+    if await _page_has_index_search_form(page):
+        return
     await _navigate_top_menu(page, "Securities")
     await _navigate_instruments_submenu(page, MENU_INDEX_SEARCH)
+    if await _page_has_http_exception(page) or not await _page_has_index_search_form(page):
+        await _ensure_instrinq_search(page, portal_base)
 
 
 async def _navigate_top_menu(page, menu_label: str) -> None:
@@ -346,7 +530,7 @@ async def _navigate_top_menu(page, menu_label: str) -> None:
     ]
     for loc in patterns:
         if await loc.count() > 0:
-            await loc.first.click()
+            await _portal_click(loc.first)
             await human_delay(1.0, 1.8)
             return
 
@@ -403,12 +587,12 @@ async def drill_instrument_summary_row(page, inst_code: str) -> bool:
         page.locator(f"a:has-text('{code}')"),
     ):
         if await loc.count() > 0:
-            await loc.first.click()
+            await _portal_click(loc.first)
             try:
-                await page.wait_for_load_state("networkidle", timeout=45000)
+                await page.wait_for_load_state("domcontentloaded", timeout=20000)
             except Exception:
                 pass
-            await human_delay(2.0, 3.0)
+            await human_delay(1.5, 2.5)
             logger.info("[ecclix] drilled summary → %s detail url=%s", code, page.url)
             return True
     # Hyperlink on instrument count column (e.g. "89")
@@ -419,7 +603,7 @@ async def drill_instrument_summary_row(page, inst_code: str) -> bool:
             continue
         link = await row.query_selector("a")
         if link:
-            await link.click()
+            await _portal_click(link)
             await human_delay(2.0, 3.0)
             return True
     return False
@@ -439,12 +623,12 @@ async def click_next_page(page) -> bool:
         if "disabled" in cls:
             return False
         try:
-            await el.click()
+            await _portal_click(el)
             try:
-                await page.wait_for_load_state("networkidle", timeout=45000)
+                await page.wait_for_load_state("domcontentloaded", timeout=20000)
             except Exception:
                 pass
-            await human_delay(2.0, 3.5)
+            await human_delay(1.5, 2.5)
             return True
         except Exception as exc:
             logger.debug("[ecclix] next page click: %s", exc)
@@ -592,6 +776,7 @@ async def parse_delinquent_tax_rows(
             if is_junk_portal_row(text, data):
                 continue
 
+            data = sanitize_tax_row(data)
             rows_data.append(data)
             if len(rows_data) >= limit:
                 break
@@ -635,11 +820,76 @@ def _extract_dollar(text: str) -> float | None:
         return None
 
 
+async def _select_party_search_mode(page) -> None:
+    """Switch index/combo search to party-name mode (By Party radio/tab)."""
+    activated = await page.evaluate(
+        """() => {
+            const radios = document.querySelectorAll('input[type="radio"]');
+            for (const el of radios) {
+                const id = (el.id || '').toLowerCase();
+                const val = (el.value || '').toLowerCase();
+                const label = (el.labels && el.labels[0]
+                    ? el.labels[0].textContent : '').toLowerCase();
+                if (
+                    id.includes('party') || val.includes('party')
+                    || /by\\s+party|party\\s+one/i.test(label)
+                ) {
+                    el.checked = true;
+                    el.click();
+                    el.dispatchEvent(new Event('change', { bubbles: true }));
+                    return true;
+                }
+            }
+            for (const node of document.querySelectorAll('label, span, a, td')) {
+                const t = (node.textContent || '').trim();
+                if (/^by\\s+party$/i.test(t) || /^party$/i.test(t)) {
+                    node.click();
+                    return true;
+                }
+            }
+            return false;
+        }"""
+    )
+    if activated:
+        await human_delay(0.5, 0.8)
+
+
 async def _select_between_dates_tab(page) -> None:
-    tab = page.get_by_text("Between Dates", exact=False)
-    if await tab.count() > 0:
-        await tab.first.click()
-        await human_delay(0.5, 1.0)
+    """ASP.NET hides Search until Between Dates radio/tab is active."""
+    activated = await page.evaluate(
+        """() => {
+            const sels = [
+                '#ctl00_Content_rdoBetweenDates',
+                'input[id*="rdoBetween" i]',
+                'input[id*="BetweenDates" i][type="radio"]',
+                'input[type="radio"][value*="Between" i]',
+            ];
+            for (const sel of sels) {
+                const el = document.querySelector(sel);
+                if (!el) continue;
+                el.checked = true;
+                el.click();
+                el.dispatchEvent(new Event('change', { bubbles: true }));
+                return true;
+            }
+            for (const node of document.querySelectorAll('label, span, a, td')) {
+                const t = (node.textContent || '').trim();
+                if (/^between\\s+dates$/i.test(t) || /^between dates$/i.test(t)) {
+                    node.click();
+                    return true;
+                }
+            }
+            return false;
+        }"""
+    )
+    if not activated:
+        tab = page.get_by_text("Between Dates", exact=False)
+        if await tab.count() > 0:
+            try:
+                await tab.first.click(force=True, timeout=10000)
+            except Exception:
+                await tab.first.evaluate("el => el.click()")
+    await human_delay(0.6, 1.0)
 
 
 async def _fill_date_range(page, start: date, end: date) -> bool:
@@ -650,7 +900,7 @@ async def _fill_date_range(page, start: date, end: date) -> bool:
     for label, value in (("Beginning Date", start_s), ("Ending Date", end_s)):
         loc = page.get_by_label(label)
         if await loc.count() > 0:
-            await loc.first.fill(value)
+            await loc.first.fill(value, force=True)
             filled = True
             continue
         # ASP.NET name fallbacks
@@ -660,7 +910,10 @@ async def _fill_date_range(page, start: date, end: date) -> bool:
         ):
             el = await page.query_selector(sel)
             if el:
-                await el.fill(value)
+                await el.evaluate(
+                    "(node, v) => { node.value = v; node.dispatchEvent(new Event('input', { bubbles: true })); }",
+                    value,
+                )
                 filled = True
                 break
 
@@ -675,8 +928,11 @@ async def _fill_date_range(page, start: date, end: date) -> bool:
             if "mm" in ph or "date" in name or "date" in ph:
                 date_inputs.append(inp)
         if len(date_inputs) >= 2:
-            await date_inputs[0].fill(start_s)
-            await date_inputs[1].fill(end_s)
+            for inp, v in ((date_inputs[0], start_s), (date_inputs[1], end_s)):
+                await inp.evaluate(
+                    "(node, val) => { node.value = val; node.dispatchEvent(new Event('input', { bubbles: true })); }",
+                    v,
+                )
             filled = True
 
     return filled
@@ -699,6 +955,9 @@ async def _select_instrument_type(page, inst_code: str) -> bool:
         aliases |= {"LIENS"}
 
     selectors = [
+        "select[name*='uceType' i]",
+        "select[id*='uceType' i]",
+        "select[name*='gbSearch$uceType' i]",
         "select[name*='Type' i]",
         "select[id*='Type' i]",
         "select[name*='ddlType' i]",
@@ -753,24 +1012,27 @@ async def _select_instrument_type(page, inst_code: str) -> bool:
 
 
 async def submit_instrument_search(page) -> None:
-    btn = page.get_by_role("button", name=re.compile(r"^Search$", re.I))
-    if await btn.count() > 0:
-        await btn.first.click()
-    else:
-        for sel in (
-            "input[type='submit'][value*='Search' i]",
-            "input#btnSearch",
-            "a:has-text('Search')",
-        ):
-            el = await page.query_selector(sel)
-            if el:
-                await el.click()
-                break
+    clicked = False
+    for sel in (
+        "#ctl00_Content_btnSearch",
+        "input#ctl00_Content_btnSearch",
+        "input[type='submit'][value*='Search' i]",
+        "input#btnSearch",
+    ):
+        el = await page.query_selector(sel)
+        if el:
+            await _portal_click(el)
+            clicked = True
+            break
+    if not clicked:
+        btn = page.get_by_role("button", name=re.compile(r"^Search$", re.I))
+        if await btn.count() > 0:
+            await _portal_click(btn.first)
     try:
-        await page.wait_for_load_state("networkidle", timeout=45000)
+        await page.wait_for_load_state("domcontentloaded", timeout=25000)
     except Exception:
         pass
-    await human_delay(2.0, 3.5)
+    await human_delay(1.5, 2.5)
 
 
 async def _fill_party_city_filter(page, city: str) -> bool:
@@ -810,6 +1072,9 @@ async def instrument_search_by_type(
 
     if await is_login_page(page):
         logger.warning("[ecclix] instrument search aborted — login page")
+        return False
+    if await _page_has_http_exception(page):
+        logger.warning("[ecclix] instrument search aborted — server error url=%s", page.url)
         return False
     if not await _page_has_index_search_form(page) and not use_securities:
         logger.warning("[ecclix] no index search form url=%s", page.url)
@@ -879,42 +1144,40 @@ async def instrument_search_by_party(
     days_back: int = 365,
 ) -> bool:
     """Combination Party Search (preferred) or Index Search party fields."""
-    await goto_combination_party_search(page, portal_base)
     end = date.today()
     start = end - timedelta(days=days_back)
-    await _select_between_dates_tab(page)
-    await _fill_date_range(page, start, end)
 
-    filled = False
-    for label in (
-        "Party One", "Party 1", "Party Name", "Name", "Grantor", "Grantee",
-    ):
-        loc = page.get_by_label(label)
-        if await loc.count() > 0:
-            await loc.first.fill(party_name)
-            filled = True
-            break
-    if not filled:
-        party_inp = await page.query_selector(
-            "input[name*='Party' i], input[id*='Party' i], input[name*='Name' i]"
-        )
-        if party_inp:
-            await party_inp.fill(party_name)
-            filled = True
+    await goto_combination_party_search(page, portal_base)
+    on_party_form = await _page_has_combination_party_form(page)
+    url = (page.url or "").lower()
 
-    if not filled:
-        await goto_index_search(page, portal_base)
+    if on_party_form or "combparty" in url or "cparty" in url:
         await _select_between_dates_tab(page)
-        await _fill_date_range(page, start, end)
-        for label in ("Party One", "Party 1"):
-            loc = page.get_by_label(label)
-            if await loc.count() > 0:
-                await loc.first.fill(party_name)
-                filled = True
-                break
+    else:
+        await goto_index_search(page, portal_base)
+        await _select_party_search_mode(page)
+        await _select_between_dates_tab(page)
+
+    dates_ok = await _fill_date_range(page, start, end)
+    filled = await _set_party_name(page, party_name)
+
+    if not filled:
+        await _select_party_search_mode(page)
+        filled = await _set_party_name(page, party_name)
+
+    if not filled and await is_login_page(page):
+        logger.warning("[ecclix] party search aborted — login page")
+        return False
 
     await submit_instrument_search(page)
-    logger.info("[ecclix] party search name=%s filled=%s", party_name[:40], filled)
+    logger.info(
+        "[ecclix] party search name=%s filled=%s dates=%s combo_form=%s url=%s",
+        party_name[:40],
+        filled,
+        dates_ok,
+        on_party_form,
+        page.url,
+    )
     return filled
 
 
@@ -973,6 +1236,8 @@ async def parse_result_rows(page, limit: int = 50) -> list[dict[str, Any]]:
         try:
             text = (await row.inner_text()).strip()
             if not text or len(text) < 12:
+                continue
+            if "Between Dates" in text and "Beginning Date" in text:
                 continue
             if re.match(r"^(type|book|page|party|grantor|date|instrument)\b", text, re.I):
                 if len(text) < 60:
@@ -1061,7 +1326,7 @@ async def download_document_from_row(
             continue
         try:
             async with page.expect_download(timeout=60000) as dl_info:
-                await el.click()
+                await _portal_click(el)
             download = await dl_info.value
             path = await download.path()
             if path:

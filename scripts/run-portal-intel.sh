@@ -23,6 +23,7 @@ async def main():
         "full_extract": True,
         "max_pages": 100,
         "tax_year": 2025,
+        "no_proxy": True,
     })
 
 asyncio.run(main())
