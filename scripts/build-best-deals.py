@@ -13,6 +13,7 @@ ROOT = Path(__file__).resolve().parents[1] / "scraper-service"
 sys.path.insert(0, str(ROOT))
 
 from app.browser import create_browser
+from app.proxy import proxy_manager
 from app.pipeline.deal_package import (
     build_best_deals_package,
     lead_from_supabase_row,
@@ -59,6 +60,11 @@ async def main() -> None:
     )
     parser.add_argument("--pva-limit", type=int, default=30)
     parser.add_argument(
+        "--no-proxy",
+        action="store_true",
+        help="Direct connection (recommended for qPublic — proxy triggers Cloudflare)",
+    )
+    parser.add_argument(
         "--csv",
         action="append",
         default=[],
@@ -78,7 +84,8 @@ async def main() -> None:
         )
 
     if args.enrich_pva:
-        async with create_browser() as browser:
+        proxy = None if args.no_proxy else proxy_manager.create_session()
+        async with create_browser(proxy_session=proxy) as browser:
             result = await build_best_deals_package(
                 browser,
                 enrich_pva=True,

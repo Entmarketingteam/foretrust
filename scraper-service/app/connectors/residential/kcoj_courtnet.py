@@ -101,6 +101,16 @@ _PARTY_PANEL_TRIGGERS = [
     "legend:has-text('Party')",
 ]
 
+_CASE_PANEL_TRIGGERS = [
+    "button:has-text('Search by Case')",
+    "a:has-text('Search by Case')",
+    "button:has-text('Case Search')",
+    "a:has-text('Case Search')",
+    "[data-bs-target*='case' i]:not([data-bs-target*='party' i])",
+    ".accordion-button:has-text('Case')",
+    "legend:has-text('Case')",
+]
+
 
 @register
 class KCOJCourtNetConnector(BaseConnector):
@@ -246,19 +256,23 @@ class KCOJCourtNetConnector(BaseConnector):
                 "KCOJ login failed — still on Login page. Check guest credentials."
             )
 
-    async def _expand_party_search_panel(self, page: Page) -> None:
-        """Open the collapsed 'Search by Party/Business' section."""
-        for selector in _PARTY_PANEL_TRIGGERS:
+    async def _click_panel_triggers(self, page: Page, selectors: list[str]) -> bool:
+        for selector in selectors:
             el = await page.query_selector(selector)
             if not el:
                 continue
             try:
                 await el.click()
                 await human_delay(0.8, 1.5)
-                return
+                return True
             except Exception:
                 continue
+        return False
 
+    async def _expand_party_search_panel(self, page: Page) -> None:
+        """Open the collapsed 'Search by Party/Business' section."""
+        if await self._click_panel_triggers(page, _PARTY_PANEL_TRIGGERS):
+            return
         # Panel may already be expanded, or use a single visible party form
         party_form = await page.query_selector(
             "input#LastName, input[name='LastName'], "
@@ -267,6 +281,25 @@ class KCOJCourtNetConnector(BaseConnector):
         )
         if not party_form:
             logger.debug("[kcoj] Party panel trigger not found — continuing with visible form")
+
+    async def _expand_case_search_panel(self, page: Page) -> None:
+        """Open collapsed case/county search (CourtNet 2.0 SearchCriteria_* fields)."""
+        if await self._click_panel_triggers(page, _CASE_PANEL_TRIGGERS):
+            return
+        # Fallback: expand first collapsed accordion on search page
+        for selector in (
+            ".accordion-button.collapsed",
+            "a.accordion-toggle.collapsed",
+            ".panel-heading a[data-toggle='collapse']",
+        ):
+            el = await page.query_selector(selector)
+            if el:
+                try:
+                    await el.click()
+                    await human_delay(0.8, 1.5)
+                    return
+                except Exception:
+                    continue
 
     async def _select_option_fuzzy(
         self, page: Page, selector: str, value: str, *, by_label: bool = True
@@ -284,6 +317,10 @@ class KCOJCourtNetConnector(BaseConnector):
         select_el = await page.query_selector(selector)
         if not select_el:
             return False
+        try:
+            await select_el.scroll_into_view_if_needed()
+        except Exception:
+            pass
 
         options = await select_el.query_selector_all("option")
         target = value.upper()
@@ -291,8 +328,40 @@ class KCOJCourtNetConnector(BaseConnector):
             text = ((await opt.inner_text()) or "").strip()
             val = (await opt.get_attribute("value")) or ""
             if target in text.upper() or target in val.upper():
-                await select_el.select_option(value=val or text)
+                try:
+                    await select_el.select_option(value=val or text)
+                    return True
+                except Exception:
+                    break
+
+        # CourtNet 2.0 hides fields in collapsed panels — set via JS
+        try:
+            ok = await page.evaluate(
+                """({ selectors, target }) => {
+                  const t = target.toUpperCase();
+                  for (const s of selectors) {
+                    const el = document.querySelector(s);
+                    if (!el || !el.options) continue;
+                    for (const opt of el.options) {
+                      const text = (opt.text || '').toUpperCase();
+                      if (text.includes(t)) {
+                        el.value = opt.value;
+                        el.dispatchEvent(new Event('change', { bubbles: true }));
+                        return true;
+                      }
+                    }
+                  }
+                  return false;
+                }""",
+                {
+                    "selectors": [s.strip() for s in selector.split(",") if s.strip()],
+                    "target": value,
+                },
+            )
+            if ok:
                 return True
+        except Exception as exc:
+            logger.debug("[kcoj] JS select fallback failed: %s", exc)
         return False
 
     async def _party_search(
@@ -490,30 +559,28 @@ class KCOJCourtNetConnector(BaseConnector):
         await human_delay(1.0, 2.0)
         await self._solve_captchas(page, passes=2)
 
-        county_select = await page.query_selector(
+        await self._expand_case_search_panel(page)
+        await human_delay(0.5, 1.0)
+
+        county_sel = (
+            "select#SearchCriteria_County, select[name='SearchCriteria.County'], "
             "select#County, select[name='County'], select[name*='county' i]"
         )
-        if not county_select:
+        if not await page.query_selector(county_sel):
             raise RuntimeError(
                 "KCOJ search form not found at CourtNet/Search/Index — "
                 "selectors may need update after guest UI change."
             )
-        await page.select_option(
-            "select#County, select[name='County'], select[name*='county' i]",
-            label=county,
-        )
+        if not await self._select_option_fuzzy(page, county_sel, county):
+            raise RuntimeError(f"KCOJ could not select county {county!r}")
         await human_delay(1.0, 2.0)
 
-        case_select = await page.query_selector(
+        case_sel = (
+            "select#SearchCriteria_CaseType, select[name='SearchCriteria.CaseType'], "
             "select#CaseType, select[name='CaseType'], select[name*='case' i]"
         )
-        if case_select:
-            try:
-                await page.select_option(
-                    "select#CaseType, select[name='CaseType'], select[name*='case' i]",
-                    label=case_type,
-                )
-            except Exception:
+        if await page.query_selector(case_sel):
+            if not await self._select_option_fuzzy(page, case_sel, case_type):
                 logger.debug("[kcoj] Case type %s not in dropdown; skipping filter", case_type)
             await human_delay(1.0, 2.0)
 

@@ -94,6 +94,7 @@ from app.scheduler import run_connector_job
 
 async def main():
     await run_connector_job("kcoj_courtnet", {
+        "no_proxy": True,
         "bulk_legacy": True,
         "counties": ["Scott", "Bourbon", "Woodford", "Franklin"],
         "case_types": [
@@ -124,7 +125,7 @@ from app.browser import create_browser
 from app.pipeline.signal_intel import run_signal_intel_pipeline
 
 async def main():
-    async with create_browser() as browser:
+    async with create_browser(proxy_session=None) as browser:
         result = await run_signal_intel_pipeline(browser, {
             "counties": ["scott", "bourbon", "woodford", "franklin"],
             "run_ecclix": False,
@@ -149,11 +150,11 @@ PY
       echo "[pva] Scott qPublic enrich started"
       cd "$ROOT"
       doppler_py env -u PLAYWRIGHT_BROWSERS_PATH \
-        python3 scripts/build-best-deals.py --enrich-pva --county scott --pva-limit 40 \
+        python3 scripts/build-best-deals.py --enrich-pva --no-proxy --county scott --pva-limit 25 \
         || echo "[pva] scott failed (non-fatal)"
       echo "[pva] Woodford qPublic enrich started"
       doppler_py env -u PLAYWRIGHT_BROWSERS_PATH \
-        python3 scripts/build-best-deals.py --enrich-pva --county woodford --pva-limit 40 \
+        python3 scripts/build-best-deals.py --enrich-pva --no-proxy --county woodford --pva-limit 25 \
         || echo "[pva] woodford failed (non-fatal)"
       echo "[pva] done"
     ) &

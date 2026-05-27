@@ -12,8 +12,9 @@ echo "Counties: $COUNTIES"
 echo "Started: $(date)"
 echo ""
 
+# Force COUNTIES over Doppler ECCLIX_COUNTIES (Doppler may list clark/madison).
 doppler run --project foretrust-scraper --config "${DOPPLER_CONFIG:-dev}" -- \
-  env -u PLAYWRIGHT_BROWSERS_PATH ECCLIX_COUNTIES="$COUNTIES" python3 - <<'PY'
+  env -u PLAYWRIGHT_BROWSERS_PATH ECCLIX_COUNTIES="$COUNTIES" DOPPLER_ECCLIX_COUNTIES="$COUNTIES" python3 - <<'PY'
 import asyncio
 import json
 import logging

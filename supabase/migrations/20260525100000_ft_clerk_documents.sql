@@ -33,6 +33,6 @@ ALTER TABLE ft_clerk_documents ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS "Service role full access clerk docs" ON ft_clerk_documents;
 CREATE POLICY "Service role full access clerk docs" ON ft_clerk_documents
-  FOR ALL USING (true) WITH CHECK (true);
+  FOR ALL TO service_role USING (true) WITH CHECK (true);
 
 COMMENT ON TABLE ft_clerk_documents IS 'Downloaded county clerk instruments from eCCLIX (deeds, wills, mortgages, etc.)';

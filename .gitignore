@@ -7,6 +7,10 @@ dist/
 scraper-service/exports/*
 !scraper-service/exports/.gitkeep
 scraper-service/enrichment.log
+scraper-service/enrich.log
+scraper-service/test_watcher.log
+urgent.log
+*.log
 scraper-service/test_*.py
 scraper-service/backfill_backup_*.json
 # Debug screenshots/artifacts (match anywhere in the tree, not just scraper-service/)

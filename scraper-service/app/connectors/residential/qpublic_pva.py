@@ -41,22 +41,34 @@ class QPublicPVAConnector(BasePVAConnector):
         app = self.qpublic_app or f"{self.county_name}CountyKY"
         return f"/Application.aspx?App={app}&PageType=Search"
 
-    async def _wait_portal_ready(self, page: Page, timeout_sec: int = 60) -> bool:
-        for i in range(max(1, timeout_sec // 2)):
-            # Aggressively dismiss terms during wait
+    async def _wait_portal_ready(self, page: Page, timeout_sec: int = 30) -> bool:
+        cloudflare_hits = 0
+        for i in range(max(1, timeout_sec // 3)):
             await self._dismiss_terms(page)
-            
+
             title = (await page.title() or "").lower()
             blocked = "just a moment" in title or "verify you are human" in title
+            if blocked:
+                cloudflare_hits += 1
+                if cloudflare_hits >= 4:
+                    logger.warning(
+                        "[%s] qPublic Cloudflare block — use --no-proxy or --browserbase",
+                        self.source_key,
+                    )
+                    return False
+
             inp = await page.query_selector(_ADDR_INPUT)
             if inp and not blocked:
                 return True
-            
-            if i % 5 == 0:
+
+            if i % 3 == 0:
                 logger.info("[%s] Waiting for qPublic... (Title: %s)", self.source_key, title)
             await human_delay(2.0, 3.0)
-        
-        await page.screenshot(path=f"debug_qpublic_fail_{self.source_key}.png")
+
+        try:
+            await page.screenshot(path=f"/tmp/debug_qpublic_fail_{self.source_key}.png")
+        except Exception:
+            pass
         return False
 
     async def _dismiss_terms(self, page: Page) -> None:

@@ -135,6 +135,13 @@ class ZillowPublicConnector(BaseConnector):
         if fact_texts:
             data["property_facts"] = fact_texts
 
+        # Extract main image
+        img_el = await page.query_selector(
+            ".media-stream img, .ds-media-col img, [data-test='property-card-img']"
+        )
+        if img_el:
+            data["main_image_url"] = await img_el.get_attribute("src")
+
         # Public records tab
         public_records_link = await page.query_selector(
             "a:has-text('Public Records'), a:has-text('Tax History')"

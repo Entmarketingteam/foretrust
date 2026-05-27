@@ -31,6 +31,11 @@ async def main() -> None:
         help="Use Browserbase cloud browser (bypasses Cloudflare on qPublic)",
     )
     p.add_argument("--headed", action="store_true", help="Run local Chromium headed (non-headless)")
+    p.add_argument(
+        "--no-proxy",
+        action="store_true",
+        help="Direct connection (recommended for qPublic)",
+    )
     p.add_argument("--dry-run", action="store_true")
     args = p.parse_args()
 
@@ -47,8 +52,12 @@ async def main() -> None:
         print("Using Browserbase for PVA lookups")
         browser_ctx = create_browserbase_browser()
     else:
-        print(f"Using local Chromium (headless={headless})")
-        browser_ctx = create_browser(headless=headless)
+        proxy_note = "no proxy" if args.no_proxy else "with proxy"
+        print(f"Using local Chromium (headless={headless}, {proxy_note})")
+        from app.proxy import proxy_manager
+
+        proxy = None if args.no_proxy else proxy_manager.create_session()
+        browser_ctx = create_browser(headless=headless, proxy_session=proxy)
 
     async with browser_ctx as browser:
         leads, n = await enrich_leads_with_pva(

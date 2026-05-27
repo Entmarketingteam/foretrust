@@ -27,6 +27,7 @@ from collections import Counter
 from datetime import datetime
 
 from app.connectors.residential.ecclix_row_parser import explode_instrument_cells
+from app.pipeline.property_address import normalize_property_address
 
 REF = "aqalynmkpktxevfmubnl"
 SOURCE = "ecclix_batch"
@@ -98,13 +99,14 @@ def lead_type_for(inst: str) -> str:
 def lead_row(county: str, rec: dict) -> dict:
     owner = rec["grantor"] or rec["grantee"]
     legal = rec["legal_description"]
+    prop_addr = normalize_property_address(None, legal=legal) or None
     return {
         "organization_id": ORG_ID,
         "source_key": SOURCE,
         "vertical": "residential",
         "lead_type": lead_type_for(rec["instrument_type"]),
         "owner_name": owner[:255] or None,
-        "property_address": legal or None,
+        "property_address": prop_addr,
         "case_id": f"{rec['book']}/{rec['page']}"[:255],
         "jurisdiction": f"KY-{county}",
         "state": "KY",
@@ -154,6 +156,17 @@ def looks_like_junk(lead: dict) -> bool:
     return any(m in blob for m in JUNK_MARKERS)
 
 
+def is_recovered_instrument(lead: dict) -> bool:
+    """Already exploded/cleaned — must not delete in junk pass."""
+    rp = lead.get("raw_payload") or {}
+    if rp.get("recovered_from_cells"):
+        return True
+    book = str(rp.get("book") or "").strip()
+    page = str(rp.get("page") or "").strip()
+    inst = str(rp.get("instrument_type") or "").strip()
+    return bool(book and page and inst and not looks_like_junk(lead))
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--apply", action="store_true", help="execute writes")
@@ -184,9 +197,13 @@ def main():
         else:  # 0 records
             if is_tax_lead(lead):
                 plan["leave_tax"] += 1
-            else:  # nav/header junk or orphaned line-2 fragment
+            elif is_recovered_instrument(lead):
+                plan["leave_recovered"] += 1
+            elif looks_like_junk(lead):
                 plan["delete_junk_fragment"] += 1
                 delete_ids.append(lead["id"])
+            else:
+                plan["leave_other"] += 1
 
     # Dedupe recovered records on the clean natural key.
     seen = set()
@@ -200,8 +217,16 @@ def main():
         unique.append((county, r))
 
     print("\nPlanned operations:")
-    for k in ("update_single", "delete_blob", "recovered_records",
-              "dupe_skipped", "delete_junk_fragment", "leave_tax"):
+    for k in (
+        "update_single",
+        "delete_blob",
+        "recovered_records",
+        "dupe_skipped",
+        "delete_junk_fragment",
+        "leave_tax",
+        "leave_recovered",
+        "leave_other",
+    ):
         print(f"  {k:22} {plan[k]}")
     print(f"  {'unique leads to insert':22} {len(unique)}")
     print(f"  {'old leads to delete':22} {len(delete_ids)}")
@@ -251,14 +276,17 @@ def main():
         ids = ",".join(f"'{x}'" for x in chunk)
         q(f"delete from ft_leads where id in ({ids});")
 
-    print(f"[APPLY] rebuilding ft_clerk_documents ...")
-    q(f"delete from ft_clerk_documents where source_key='{SOURCE}';")
-    ccols = ("organization_id, source_key, county, instrument_type, book, page, "
-             "recorded_date, grantor, grantee, legal_description, property_address, "
-             "storage_path, raw_payload")
-    q(f"insert into ft_clerk_documents ({ccols}) select {ccols} from "
-      f"json_populate_recordset(null::ft_clerk_documents, {tag}{json.dumps(clerk_rows)}{tag}) "
-      f"on conflict (county, book, page, instrument_type, source_key) do nothing;")
+    if clerk_rows:
+        print(f"[APPLY] rebuilding ft_clerk_documents ({len(clerk_rows)} rows) ...")
+        q(f"delete from ft_clerk_documents where source_key='{SOURCE}';")
+        ccols = ("organization_id, source_key, county, instrument_type, book, page, "
+                 "recorded_date, grantor, grantee, legal_description, property_address, "
+                 "storage_path, raw_payload")
+        q(f"insert into ft_clerk_documents ({ccols}) select {ccols} from "
+          f"json_populate_recordset(null::ft_clerk_documents, {tag}{json.dumps(clerk_rows)}{tag}) "
+          f"on conflict (county, book, page, instrument_type, source_key) do nothing;")
+    else:
+        print("[APPLY] skip clerk rebuild — no recovered instrument rows to insert")
 
     # ---- VERIFY ----
     leads_after = q(f"select count(*) n from ft_leads where source_key='{SOURCE}'")[0]["n"]
