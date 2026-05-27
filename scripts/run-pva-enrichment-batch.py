@@ -72,14 +72,24 @@ async def main() -> None:
             proxy = None if args.no_proxy else proxy_manager.create_session()
             browser_ctx = create_browser(headless=headless, proxy_session=proxy)
 
-        async with browser_ctx as browser:
-            chunk, n = await enrich_leads_with_pva(
-                browser,
-                chunk,
-                county=args.county,
-                max_enrich=len(chunk),
-                workers_delay=args.delay,
-            )
+        try:
+            async with browser_ctx as browser:
+                chunk, n = await enrich_leads_with_pva(
+                    browser,
+                    chunk,
+                    county=args.county,
+                    max_enrich=len(chunk),
+                    workers_delay=args.delay,
+                )
+        except Exception as exc:
+            err = str(exc)
+            if "402" in err or "Payment Required" in err:
+                print(
+                    f"Browserbase session limit (402) — stopping after "
+                    f"{total_enriched} enriched. Top up Browserbase or use --no-proxy."
+                )
+                break
+            raise
         leads[start : start + len(chunk)] = chunk
         total_enriched += n
         print(f"Chunk enriched {n}/{len(chunk)}")
