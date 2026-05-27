@@ -37,6 +37,12 @@ async def main() -> None:
         help="Direct connection (recommended for qPublic)",
     )
     p.add_argument("--dry-run", action="store_true")
+    p.add_argument(
+        "--chunk-size",
+        type=int,
+        default=10,
+        help="Fresh browser session every N leads (avoids Browserbase mid-batch disconnect)",
+    )
     args = p.parse_args()
 
     leads = await fetch_leads_for_pva(county=args.county, limit=args.limit)
@@ -47,27 +53,45 @@ async def main() -> None:
 
     use_bb = args.browserbase or (bool(settings.browserbase_api_key) and not args.no_proxy)
     headless = not args.headed
+    chunk_size = max(1, args.chunk_size)
+    total_enriched = 0
+    total_persisted = 0
 
-    if use_bb and settings.browserbase_api_key:
-        print("Using Browserbase for PVA lookups")
-        browser_ctx = create_browserbase_browser()
-    else:
-        proxy_note = "no proxy" if args.no_proxy else "with proxy"
-        print(f"Using local Chromium (headless={headless}, {proxy_note})")
-        from app.proxy import proxy_manager
+    for start in range(0, len(leads), chunk_size):
+        chunk = leads[start : start + chunk_size]
+        print(f"\n--- chunk {start // chunk_size + 1} ({len(chunk)} leads) ---")
 
-        proxy = None if args.no_proxy else proxy_manager.create_session()
-        browser_ctx = create_browser(headless=headless, proxy_session=proxy)
+        if use_bb and settings.browserbase_api_key:
+            print("Using Browserbase for PVA lookups")
+            browser_ctx = create_browserbase_browser()
+        else:
+            proxy_note = "no proxy" if args.no_proxy else "with proxy"
+            print(f"Using local Chromium (headless={headless}, {proxy_note})")
+            from app.proxy import proxy_manager
 
-    async with browser_ctx as browser:
-        leads, n = await enrich_leads_with_pva(
-            browser,
-            leads,
-            county=args.county,
-            max_enrich=args.limit,
-            workers_delay=args.delay,
-        )
-    print(f"Enriched {n} leads")
+            proxy = None if args.no_proxy else proxy_manager.create_session()
+            browser_ctx = create_browser(headless=headless, proxy_session=proxy)
+
+        async with browser_ctx as browser:
+            chunk, n = await enrich_leads_with_pva(
+                browser,
+                chunk,
+                county=args.county,
+                max_enrich=len(chunk),
+                workers_delay=args.delay,
+            )
+        leads[start : start + len(chunk)] = chunk
+        total_enriched += n
+        print(f"Chunk enriched {n}/{len(chunk)}")
+
+        if args.dry_run:
+            continue
+
+        updated = await persist_pva_enrichment(chunk)
+        total_persisted += updated
+        print(f"Chunk persisted {updated}")
+
+    print(f"\nTotal enriched {total_enriched}/{len(leads)}")
 
     if args.dry_run:
         enriched = [l for l in leads if l.get("pva_enriched")]
@@ -80,8 +104,7 @@ async def main() -> None:
             )
         return
 
-    updated = await persist_pva_enrichment(leads)
-    print(f"Persisted {updated} to Supabase")
+    print(f"Persisted {total_persisted} to Supabase")
 
 
 if __name__ == "__main__":
