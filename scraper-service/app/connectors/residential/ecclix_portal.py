@@ -17,6 +17,7 @@ from typing import Any
 
 from app.browser import human_delay, human_type, safe_goto
 from app.captcha import detect_and_solve_captcha
+from app.connectors.residential.ecclix_row_parser import explode_instrument_cells
 from app.pipeline.property_address import sanitize_tax_row
 
 logger = logging.getLogger(__name__)
@@ -89,16 +90,63 @@ async def select_county_if_needed(page, county: str) -> bool:
     if "usercounties.aspx" not in url:
         await safe_goto(page, "https://www.ecclix.com/ecclix/usercounties.aspx")
         await human_delay(1.0, 1.5)
+    try:
+        body = (await page.inner_text("body"))[:4000]
+        if re.search(r"Purchase\s+Single\s+Day\s+Access|Subscribe\s+to\s+County", body, re.I):
+            logger.error(
+                "[ecclix] day pass not active for %s — usercounties shows purchase/subscribe only. "
+                "Buy Single Day Access in browser, then re-run harvest.",
+                name,
+            )
+            return False
+    except Exception:
+        pass
     loc = page.get_by_role(
         "link", name=re.compile(rf"Search\s+{re.escape(name)}\s+Records", re.I)
     )
     if await loc.count() == 0:
         loc = page.locator(f"a:has-text('Search {name} Records')")
-    if await loc.count() == 0:
-        logger.warning("[ecclix] no 'Search %s Records' link", name)
+    clicked = False
+    if await loc.count() > 0:
+        try:
+            await _portal_click(loc.first)
+            clicked = True
+        except Exception:
+            pass
+    if not clicked:
+        # Fallback: any county link on picker (label text varies by subscription/build)
+        county_upper = county.strip().upper()
+        for link in await page.query_selector_all("a"):
+            try:
+                text = (await link.inner_text()).strip()
+            except Exception:
+                continue
+            if not text or len(text) > 120:
+                continue
+            tu = text.upper()
+            if county_upper not in tu:
+                continue
+            if "SEARCH" in tu or "RECORD" in tu or county_upper == tu:
+                try:
+                    await _portal_click(link)
+                    clicked = True
+                    logger.info("[ecclix] county %s via fallback link %r", name, text[:60])
+                    break
+                except Exception:
+                    continue
+    if not clicked:
+        try:
+            sample = [
+                (await a.inner_text()).strip()[:50]
+                for a in (await page.query_selector_all("a"))[:12]
+            ]
+            logger.warning(
+                "[ecclix] no county link for %s; sample links=%s", name, sample
+            )
+        except Exception:
+            logger.warning("[ecclix] no 'Search %s Records' link", name)
         return False
     try:
-        await _portal_click(loc.first)
         await page.wait_for_function(
             "() => !window.location.href.toLowerCase().includes('usercounties.aspx')",
             timeout=45000,
@@ -1283,12 +1331,28 @@ async def parse_result_rows(page, limit: int = 50) -> list[dict[str, Any]]:
                 link = await row.query_selector("a")
                 href = await link.get_attribute("href") if link else None
 
-            parsed = _parse_row_cells(cell_texts, text)
-            if is_junk_portal_row(text, parsed):
+            # A single captured table row may hold one record, one half-record,
+            # or an entire results page flattened into one element. The exploder
+            # splits all of these into individual instrument records.
+            exploded = explode_instrument_cells(cell_texts)
+            if not exploded:
+                # Unrecognised layout: fall back to the legacy single-row parse.
+                single = _parse_row_cells(cell_texts, text)
+                if is_junk_portal_row(text, single):
+                    continue
+                single["detail_href"] = href
+                single["row_text"] = text
+                rows_data.append(single)
+                if len(rows_data) >= limit:
+                    break
                 continue
-            parsed["detail_href"] = href
-            parsed["row_text"] = text
-            rows_data.append(parsed)
+
+            for rec in exploded:
+                rec["detail_href"] = href
+                rec["row_text"] = text
+                rows_data.append(rec)
+                if len(rows_data) >= limit:
+                    break
             if len(rows_data) >= limit:
                 break
         except Exception as exc:
