@@ -169,6 +169,31 @@ export async function triggerFullPipeline(
   });
 }
 
+/** Stream a clerk PDF from the scraper service volume (Railway production path). */
+export async function fetchClerkDocument(storagePath: string): Promise<Response> {
+  const url = `${SCRAPER_SERVICE_URL}/clerk-document?path=${encodeURIComponent(storagePath)}`;
+  const headers: Record<string, string> = {};
+  if (SCRAPER_SHARED_TOKEN) {
+    headers['Authorization'] = `Bearer ${SCRAPER_SHARED_TOKEN}`;
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), SCRAPER_TIMEOUT_MS);
+  try {
+    const response = await fetch(url, { headers, signal: controller.signal });
+    if (!response.ok) {
+      const errorText = await response.text();
+      if (response.status < 500) {
+        throw new NonRetryableError(`Clerk document error (${response.status}): ${errorText}`);
+      }
+      throw new Error(`Clerk document error (${response.status}): ${errorText}`);
+    }
+    return response;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 export async function listConnectors(): Promise<unknown[]> {
   const url = `${SCRAPER_SERVICE_URL}/connectors`;
   const headers: Record<string, string> = {};

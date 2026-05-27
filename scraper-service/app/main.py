@@ -418,3 +418,45 @@ async def ingest_ecclix_csv(
             for l in leads[:20]
         ],
     }
+
+
+# -----------------------------------------------------------------------
+# Clerk PDFs (served from scraper volume — used by Node backend on Railway)
+# -----------------------------------------------------------------------
+
+@app.get("/clerk-document")
+async def serve_clerk_document(
+    path: str,
+    authorization: str | None = Header(None),
+):
+    """Stream a clerk PDF from exports/ecclix. Path must resolve under export root."""
+    from pathlib import Path
+
+    from fastapi.responses import FileResponse
+
+    from app.storage.clerk_documents import _export_root
+
+    _check_auth(authorization)
+    if not path or not path.strip():
+        raise HTTPException(400, "path query param required")
+
+    export_root = _export_root().resolve()
+    requested = Path(path.strip()).expanduser()
+    if not requested.is_absolute():
+        requested = (export_root / requested).resolve()
+    else:
+        requested = requested.resolve()
+
+    try:
+        requested.relative_to(export_root)
+    except ValueError:
+        raise HTTPException(403, "Path outside clerk export directory")
+
+    if not requested.is_file():
+        raise HTTPException(404, "Document not found on scraper volume")
+
+    return FileResponse(
+        requested,
+        media_type="application/pdf",
+        filename=requested.name,
+    )

@@ -715,17 +715,149 @@
         </div>
 
         <!-- Tab Bar -->
-        <div class="flex border-b border-slate-200 mb-6">
+        <div class="flex border-b border-slate-200 mb-6 overflow-x-auto">
           <button @click="leadDetailTab = 'details'"
                   :class="leadDetailTab === 'details' ? 'border-b-2 border-indigo-500 text-indigo-600 font-semibold' : 'text-slate-500 hover:text-slate-700'"
-                  class="px-4 py-2 text-sm transition-colors -mb-px">Lead Details</button>
+                  class="px-4 py-2 text-sm transition-colors -mb-px whitespace-nowrap">Lead Details</button>
+          <button @click="leadDetailTab = 'visuals'"
+                  :class="leadDetailTab === 'visuals' ? 'border-b-2 border-indigo-500 text-indigo-600 font-semibold' : 'text-slate-500 hover:text-slate-700'"
+                  class="px-4 py-2 text-sm transition-colors -mb-px whitespace-nowrap">Visuals & Docs</button>
           <button @click="leadDetailTab = 'raw'"
                   :class="leadDetailTab === 'raw' ? 'border-b-2 border-indigo-500 text-indigo-600 font-semibold' : 'text-slate-500 hover:text-slate-700'"
-                  class="px-4 py-2 text-sm transition-colors -mb-px">Raw Data</button>
+                  class="px-4 py-2 text-sm transition-colors -mb-px whitespace-nowrap">Raw Data</button>
         </div>
 
         <!-- Lead Details tab -->
         <div x-show="leadDetailTab === 'details'">
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div class="bg-slate-50 rounded-xl p-4">
+              <p class="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">Property Address</p>
+              <p class="text-sm text-slate-900 font-medium" x-text="selectedLead?.property_address || '—'"></p>
+            </div>
+            <div class="bg-slate-50 rounded-xl p-4">
+              <p class="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">Mailing Address</p>
+              <p class="text-sm text-slate-900" x-text="selectedLead?.mailing_address || '—'"></p>
+            </div>
+            <div class="bg-slate-50 rounded-xl p-4">
+              <p class="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">City / State / ZIP</p>
+              <p class="text-sm text-slate-900" x-text="[selectedLead?.city, selectedLead?.state, selectedLead?.postal_code].filter(Boolean).join(', ') || '—'"></p>
+            </div>
+            <div class="bg-slate-50 rounded-xl p-4">
+              <p class="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">Jurisdiction</p>
+              <p class="text-sm text-slate-900" x-text="selectedLead?.jurisdiction || '—'"></p>
+            </div>
+            <div class="bg-slate-50 rounded-xl p-4">
+              <p class="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">Parcel Number</p>
+              <p class="text-sm text-slate-900 font-mono" x-text="selectedLead?.parcel_number || '—'"></p>
+            </div>
+            <div class="bg-slate-50 rounded-xl p-4">
+              <p class="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">Est. Value</p>
+              <p class="text-sm text-slate-900 font-semibold" x-text="selectedLead?.estimated_value ? '$' + Number(selectedLead.estimated_value).toLocaleString() : '—'"></p>
+            </div>
+            <div class="bg-slate-50 rounded-xl p-4">
+              <p class="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">Building SQFT</p>
+              <p class="text-sm text-slate-900" x-text="selectedLead?.building_sqft ? Number(selectedLead.building_sqft).toLocaleString() + ' sqft' : '—'"></p>
+            </div>
+            <div class="bg-slate-50 rounded-xl p-4">
+              <p class="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">Year Built</p>
+              <p class="text-sm text-slate-900" x-text="selectedLead?.year_built || '—'"></p>
+            </div>
+            <div class="bg-slate-50 rounded-xl p-4">
+              <p class="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">Case ID</p>
+              <p class="text-sm text-slate-900 font-mono" x-text="selectedLead?.case_id || '—'"></p>
+            </div>
+            <div class="bg-slate-50 rounded-xl p-4">
+              <p class="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">Case Filed</p>
+              <p class="text-sm text-slate-900" x-text="formatDate(selectedLead?.case_filed_date)"></p>
+            </div>
+            <div class="bg-slate-50 rounded-xl p-4">
+              <p class="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">Source</p>
+              <p class="text-sm text-slate-700 font-mono" x-text="selectedLead?.source_key || '—'"></p>
+            </div>
+            <div class="bg-slate-50 rounded-xl p-4">
+              <p class="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">Scraped At</p>
+              <p class="text-sm text-slate-900" x-text="formatDate(selectedLead?.scraped_at)"></p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Visuals & Docs tab -->
+        <div x-show="leadDetailTab === 'visuals'" class="space-y-6">
+          <!-- Quick Links -->
+          <div class="flex flex-wrap gap-2">
+            <a :href="'https://www.google.com/maps/search/' + encodeURIComponent(selectedLead?.property_address)" target="_blank"
+               class="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-100 text-slate-700 text-xs font-semibold hover:bg-slate-200 transition-colors">
+              <svg class="w-4 h-4 text-red-500" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/></svg>
+              Google Maps
+            </a>
+            <a :href="'https://www.zillow.com/homes/' + encodeURIComponent(selectedLead?.property_address?.replace(/\s+/g, '-')) + '_rb/'" target="_blank"
+               class="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-blue-50 text-blue-700 text-xs font-semibold hover:bg-blue-100 transition-colors">
+              <span class="font-bold italic">Z</span>
+              View on Zillow
+            </a>
+            <template x-if="selectedLead?.raw_payload?.document_downloaded || selectedLead?.raw_payload?.storage_path">
+              <a :href="'/api/foretrust/leads/' + selectedLead.id + '/document'" target="_blank"
+                 class="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-emerald-50 text-emerald-700 text-xs font-semibold hover:bg-emerald-100 transition-colors">
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg>
+                Open Original PDF
+              </a>
+            </template>
+          </div>
+
+          <!-- Zillow Visuals Section -->
+          <div class="bg-slate-50 border border-slate-200 rounded-2xl p-4">
+            <div class="flex items-center justify-between mb-4">
+              <h4 class="text-sm font-bold text-slate-700 uppercase tracking-wide">Zillow Visual Intelligence</h4>
+              <button @click="fetchZillowVisuals(selectedLead)"
+                      :disabled="selectedLead?._zillowLoading"
+                      class="px-3 py-1.5 rounded-lg text-xs font-medium bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 transition-colors">
+                <span x-text="selectedLead?._zillowLoading ? 'Fetching...' : 'Fetch Visuals'"></span>
+              </button>
+            </div>
+
+            <!-- Zillow Data Display -->
+            <template x-if="selectedLead?.raw_payload?.listed_price || selectedLead?.raw_payload?.property_facts || selectedLead?.raw_payload?.main_image_url">
+              <div class="space-y-4">
+                <template x-if="selectedLead.raw_payload.main_image_url">
+                  <div class="relative rounded-xl overflow-hidden aspect-video bg-slate-200 border border-slate-200">
+                    <img :src="selectedLead.raw_payload.main_image_url" class="w-full h-full object-cover" @error="$el.style.display='none'">
+                  </div>
+                </template>
+                <div class="grid grid-cols-2 gap-3">
+                  <div class="bg-white p-3 rounded-xl border border-slate-100">
+                    <p class="text-[10px] font-bold text-slate-400 uppercase">Listed Price</p>
+                    <p class="text-lg font-bold text-slate-900" x-text="selectedLead.raw_payload.listed_price || '—'"></p>
+                  </div>
+                  <div class="bg-white p-3 rounded-xl border border-slate-100">
+                    <p class="text-[10px] font-bold text-slate-400 uppercase">Status</p>
+                    <p class="text-sm font-semibold text-blue-600" x-text="selectedLead.raw_payload.pre_foreclosure ? 'PRE-FORECLOSURE' : 'Off-Market / Active'"></p>
+                  </div>
+                </div>
+                <div>
+                  <p class="text-[10px] font-bold text-slate-400 uppercase mb-2">Property Facts</p>
+                  <div class="flex flex-wrap gap-2">
+                    <template x-for="fact in (selectedLead.raw_payload.property_facts || [])" :key="fact">
+                      <span class="bg-white px-2 py-1 rounded-lg border border-slate-100 text-xs font-medium text-slate-700" x-text="fact"></span>
+                    </template>
+                  </div>
+                </div>
+              </div>
+            </template>
+
+            <!-- Placeholder / Empty State -->
+            <template x-if="!selectedLead?.raw_payload?.listed_price && !selectedLead?._zillowLoading">
+              <div class="text-center py-6">
+                <svg class="w-12 h-12 text-slate-200 mx-auto mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+                <p class="text-xs text-slate-400 italic">Click "Fetch Visuals" to pull the latest Zillow data for this address.</p>
+              </div>
+            </template>
+
+            <!-- Loading Visuals -->
+            <div x-show="selectedLead?._zillowLoading" class="flex items-center justify-center py-8">
+              <svg class="w-6 h-6 text-blue-500 spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+            </div>
+          </div>
+        </div>
 
         <!-- Details Grid -->
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -1979,6 +2111,45 @@
           this.selectedLead = lead;
           this.leadDetailTab = 'details';
           this.showLeadDetail = true;
+        },
+
+        async fetchZillowVisuals(lead) {
+          if (!lead || lead._zillowLoading) return;
+          const idx = this.leads.findIndex(l => l.id === lead.id);
+          if (idx !== -1) this.leads.splice(idx, 1, { ...this.leads[idx], _zillowLoading: true });
+          if (this.selectedLead?.id === lead.id) this.selectedLead = { ...this.selectedLead, _zillowLoading: true };
+          
+          this.toast('Triggering Zillow visual harvest...', 'info');
+          try {
+            const res = await fetch(`${API}/leads/${lead.id}/zillow-visuals`, { method: 'POST' });
+            const json = await res.json();
+            if (json.success) {
+              this.toast('Zillow harvest started. It will update automatically in ~35s.', 'success');
+              setTimeout(() => this.reloadSingleLead(lead.id), 35000);
+            } else {
+              this.toast(json.error || 'Zillow harvest failed.', 'error');
+            }
+          } catch (e) {
+            this.toast('Zillow harvest request failed.', 'error');
+          } finally {
+            if (idx !== -1) this.leads.splice(idx, 1, { ...this.leads[idx], _zillowLoading: false });
+            if (this.selectedLead?.id === lead.id) this.selectedLead = { ...this.selectedLead, _zillowLoading: false };
+          }
+        },
+
+        async reloadSingleLead(leadId) {
+          try {
+            const res = await fetch(`${API}/leads/${leadId}`);
+            const json = await res.json();
+            if (json.success) {
+              const updated = json.data;
+              const idx = this.leads.findIndex(l => l.id === leadId);
+              if (idx !== -1) this.leads.splice(idx, 1, updated);
+              if (this.selectedLead?.id === leadId) this.selectedLead = updated;
+            }
+          } catch (e) {
+            console.error('Failed to reload lead:', e);
+          }
         },
 
         payloadEntries(payload) {

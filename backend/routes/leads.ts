@@ -2,7 +2,12 @@
 // Bridges the Node backend to the Python scraper service
 import { Router, Request, Response } from 'express';
 import * as db from '../services/database.js';
-import { triggerScraperRun, triggerFullPipeline, triggerPreMlsPipeline } from '../services/scraper.js';
+import {
+  triggerScraperRun,
+  triggerFullPipeline,
+  triggerPreMlsPipeline,
+  fetchClerkDocument,
+} from '../services/scraper.js';
 import { interpretLead, generateSlbThesis, type LeadInterpretation } from '../services/claude.js';
 import { researchLead } from '../services/search.js';
 import { enrichLeadContact } from '../services/contact.js';
@@ -340,6 +345,84 @@ router.post('/:leadId/contact-intel', async (req: Request, res: Response) => {
   } catch (error) {
     console.error('Error enriching contact intel:', error);
     res.status(500).json({ success: false, error: 'Failed to enrich contact intel' });
+  }
+});
+
+// View the original eCCLIX document PDF
+router.get('/:leadId/document', async (req: Request, res: Response) => {
+  try {
+    const { leadId } = req.params;
+    const lead = await db.getLead(leadId);
+    if (!lead) {
+      return res.status(404).json({ success: false, error: 'Lead not found' });
+    }
+
+    const payload = (lead.raw_payload as any) || {};
+    const storagePath = payload.storage_path;
+
+    if (!storagePath) {
+      return res.status(404).json({ success: false, error: 'No document associated with this lead' });
+    }
+
+    const fs = await import('fs');
+    const path = await import('path');
+
+    if (fs.existsSync(storagePath)) {
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `inline; filename="${path.basename(storagePath)}"`);
+      fs.createReadStream(storagePath).pipe(res);
+      return;
+    }
+
+    const scraperRes = await fetchClerkDocument(storagePath);
+    const contentType = scraperRes.headers.get('content-type') || 'application/pdf';
+    const contentDisposition = scraperRes.headers.get('content-disposition');
+    res.setHeader('Content-Type', contentType);
+    if (contentDisposition) {
+      res.setHeader('Content-Disposition', contentDisposition);
+    } else {
+      res.setHeader('Content-Disposition', `inline; filename="${path.basename(storagePath)}"`);
+    }
+    if (scraperRes.body) {
+      const { Readable } = await import('stream');
+      Readable.fromWeb(scraperRes.body as import('stream/web').ReadableStream).pipe(res);
+      return;
+    }
+    return res.status(404).json({ success: false, error: 'Document file not found' });
+  } catch (error) {
+    console.error('Error serving document:', error);
+    res.status(500).json({ success: false, error: 'Failed to serve document' });
+  }
+});
+
+// Fetch real-time Zillow visuals and listing status
+router.post('/:leadId/zillow-visuals', async (req: Request, res: Response) => {
+  try {
+    const { leadId } = req.params;
+    const lead = await db.getLead(leadId);
+    if (!lead) {
+      return res.status(404).json({ success: false, error: 'Lead not found' });
+    }
+
+    const addr = lead.property_address;
+    if (!addr || addr === 'Unknown') {
+      return res.status(400).json({ success: false, error: 'Valid property address required' });
+    }
+
+    // Trigger Zillow scraper for this specific address
+    const result = await triggerScraperRun('zillow_public', {
+      addresses: [addr],
+      limit: 1,
+    });
+
+    res.json({ 
+      success: true, 
+      message: 'Zillow lookup started. Check back in ~30s.',
+      job: result 
+    });
+  } catch (error) {
+    console.error('Error triggering Zillow visuals:', error);
+    res.status(500).json({ success: false, error: 'Failed to trigger Zillow visuals' });
   }
 });
 
