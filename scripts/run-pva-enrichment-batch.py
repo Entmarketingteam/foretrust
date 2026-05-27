@@ -45,7 +45,7 @@ async def main() -> None:
     if not leads:
         return
 
-    use_bb = args.browserbase or bool(settings.browserbase_api_key)
+    use_bb = args.browserbase or (bool(settings.browserbase_api_key) and not args.no_proxy)
     headless = not args.headed
 
     if use_bb and settings.browserbase_api_key:

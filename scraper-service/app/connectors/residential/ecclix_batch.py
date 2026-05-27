@@ -56,7 +56,7 @@ from app.storage.clerk_documents import (
     parse_recorded_date,
     save_document_bytes,
 )
-from app.storage.supabase_client import insert_leads
+from app.storage.supabase_client import insert_leads, lookup_lead_id_by_book_page
 
 logging.basicConfig(
     level=logging.INFO,
@@ -1030,6 +1030,9 @@ class ECCLIXBatchConnector(BaseConnector):
             "file_sha256": file_hash or None,
             "raw_payload": {**row, "ecclix_enriched": True},
         }
+        lead_id = lookup_lead_id_by_book_page(county, book, page_no)
+        if lead_id:
+            doc_row["lead_id"] = lead_id
         await insert_clerk_document(doc_row)
 
         payload = {

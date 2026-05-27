@@ -135,13 +135,15 @@ def _load_tax_leads(county: str) -> list[dict[str, Any]]:
 def _load_instrument_leads(county: str) -> list[dict[str, Any]]:
     portal = EXPORTS / "portal-intel"
     paths = sorted(portal.glob(f"{county.lower()}-filtered-*.json"), reverse=True)
-    if not paths:
-        return []
-    try:
-        data = json.loads(paths[0].read_text(encoding="utf-8"))
-    except json.JSONDecodeError:
-        return []
-    return list(data.get("leads") or [])
+    for path in paths:
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            continue
+        leads = list(data.get("leads") or [])
+        if leads or (data.get("count") or 0) > 0:
+            return leads
+    return []
 
 
 def stack_lists(county: str) -> list[StackedLead]:
