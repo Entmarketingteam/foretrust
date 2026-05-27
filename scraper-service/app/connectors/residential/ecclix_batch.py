@@ -11,6 +11,7 @@ Supports YOLO v6 resilient selectors and expanded discovery instruments.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import argparse
 import asyncio
@@ -1244,6 +1245,38 @@ class ECCLIXBatchConnector(BaseConnector):
 
     def parse(self, raw: RawRecord) -> Lead:
         d = raw.data
+
+        # eCCLIX index-search rows carry book/page/instrument_type. Build a
+        # deterministic identity dedupe_hash (the same key the recovery backfill
+        # uses) so a re-harvest of the same instrument dedupes instead of
+        # duplicating. The legacy key (parcel|case_id|property_address) is
+        # degenerate for instruments — those fields are usually empty.
+        if d.get("instrument_type") or d.get("book") or d.get("page"):
+            inst = (d.get("instrument_type") or "").upper()
+            book = str(d.get("book") or "").strip()
+            page = str(d.get("page") or "").strip()
+            grantor = (d.get("grantor") or "").strip()
+            grantee = (d.get("grantee") or "").strip()
+            county = (d.get("county") or "").title()
+            ilt = LeadType.ESTATE
+            for needle, lead_type in DOC_TYPE_TO_LEAD:
+                if needle in inst:
+                    ilt = lead_type
+                    break
+            if any(x in inst for x in ["LP", "DJ", "PENDENS", "FORECLOS"]):
+                ilt = LeadType.PRE_FORECLOSURE
+            elif "LIEN" in inst:
+                ilt = LeadType.TAX_LIEN
+            key = f"{self.source_key}|{county}|{book}|{page}|{grantor}|{grantee}|{inst}"
+            return Lead(
+                source_key=self.source_key, vertical=Vertical.RESIDENTIAL,
+                jurisdiction=f"KY-{county}", lead_type=ilt,
+                owner_name=(grantor or grantee) or None,
+                property_address=d.get("property_address"), state="KY",
+                case_id=f"{book}/{page}", raw_payload=d,
+                dedupe_hash=hashlib.sha256(key.encode()).hexdigest(),
+            )
+
         dt = (d.get("doc_type") or "").upper()
         lt = LeadType.ESTATE
         for needle, lead_type in DOC_TYPE_TO_LEAD:
