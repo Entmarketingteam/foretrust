@@ -132,6 +132,23 @@ def _load_tax_leads(county: str) -> list[dict[str, Any]]:
     return rows
 
 
+_TAX_PORTAL_PROFILES = frozenset({"delinquent_tax", "tax_human_big"})
+
+
+def _is_stackable_instrument_row(
+    row: dict[str, Any], tax_owner_keys: set[str]
+) -> bool:
+    """Instrument row counts toward stacking (LP/scenarios or tax-portal PVA match)."""
+    if _is_valid_instrument_row(row):
+        return True
+    owner = row.get("owner_name") or row.get("grantor") or row.get("grantee") or ""
+    key = normalize_owner_name(owner)
+    if not key or key not in tax_owner_keys:
+        return False
+    profile = (row.get("search_profile") or "").lower()
+    return profile in _TAX_PORTAL_PROFILES or "tax" in profile
+
+
 def _load_instrument_leads(county: str) -> list[dict[str, Any]]:
     portal = EXPORTS / "portal-intel"
     paths = sorted(portal.glob(f"{county.lower()}-filtered-*.json"), reverse=True)
@@ -149,6 +166,7 @@ def _load_instrument_leads(county: str) -> list[dict[str, Any]]:
 def stack_lists(county: str) -> list[StackedLead]:
     """Overlay tax + instrument scenario tags for one county."""
     overlay: dict[str, StackedLead] = {}
+    tax_owner_keys: set[str] = set()
 
     def _get(key: str, owner: str, addr: str | None) -> StackedLead:
         if key not in overlay:
@@ -160,21 +178,19 @@ def stack_lists(county: str) -> list[StackedLead]:
         return overlay[key]
 
     for row in _load_tax_leads(county):
-        from app.pipeline.property_address import is_valid_street_address
-
+        # Actionable MD is already filtered to situs rows; do not re-apply
+        # is_valid_street_address (Woodford/Franklin use "STREET 123" map labels).
         owner = row.get("owner_name") or ""
-        addr = row.get("property_address")
-        if addr and not is_valid_street_address(str(addr)):
-            continue
         key = normalize_owner_name(owner)
         if not key:
             continue
+        tax_owner_keys.add(key)
         sl = _get(key, owner, row.get("property_address"))
         sl.lists.add("tax")
         sl.data.setdefault("tax", row)
 
     for row in _load_instrument_leads(county):
-        if not _is_valid_instrument_row(row):
+        if not _is_stackable_instrument_row(row, tax_owner_keys):
             continue
         owner = row.get("owner_name") or row.get("grantor") or row.get("grantee") or ""
         key = normalize_owner_name(owner)
@@ -182,15 +198,21 @@ def stack_lists(county: str) -> list[StackedLead]:
             continue
         addr = row.get("property_address")
         sl = _get(key, owner, addr)
-        inst = (row.get("instrument_type") or "").upper()
-        if inst == "LP" or "lp" in (row.get("search_profile") or "").lower():
-            sl.lists.add("lp")
-        scenarios = row.get("creative_scenarios") or []
-        if scenarios:
-            sl.lists.add("instrument")
-            sl.data.setdefault("scenarios", set()).update(scenarios)
-        elif inst and len(inst) <= 12:
-            sl.lists.add(f"instrument_{inst.lower()}")
+        profile = (row.get("search_profile") or "").lower()
+        if _is_valid_instrument_row(row):
+            inst = (row.get("instrument_type") or "").upper()
+            if inst == "LP" or "lp" in profile:
+                sl.lists.add("lp")
+            scenarios = row.get("creative_scenarios") or []
+            if scenarios:
+                sl.lists.add("instrument")
+                sl.data.setdefault("scenarios", set()).update(scenarios)
+            elif inst and len(inst) <= 12:
+                sl.lists.add(f"instrument_{inst.lower()}")
+        elif profile in _TAX_PORTAL_PROFILES or (
+            key in tax_owner_keys and "tax" in profile
+        ):
+            sl.lists.add("portal_tax")
         sl.data.setdefault("instruments", []).append(row)
 
     ranked = sorted(
