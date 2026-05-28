@@ -46,10 +46,12 @@ logger = logging.getLogger(__name__)
 COUNTY_PVA_MAP: dict[str, str] = {
     "fayette": "fayette_pva",
     "scott": "scott_pva",
+    "bourbon": "bourbon_pva",
+    "woodford": "woodford_pva",
+    "franklin": "franklin_pva",
     "oldham": "oldham_pva",
     "clark": "clark_pva",
     "madison": "madison_pva",
-    "woodford": "woodford_pva",
     "jessamine": "jessamine_pva",
     "jefferson": "jefferson_pva",
 }
@@ -88,7 +90,7 @@ async def run_full_pipeline(
     logger.info("[pipeline] Stage 1: KCOJ court cases")
     kcoj_leads: list[Lead] = []
     try:
-        kcoj_conn = get_connector("kcoj_courtnet")()
+        kcoj_conn = get_connector("kcoj_courtnet")
         kcoj_leads, kcoj_run = await kcoj_conn.run(
             browser,
             params={"counties": [c.title() for c in counties], "limit": limit_per_source},
@@ -104,7 +106,7 @@ async def run_full_pipeline(
     logger.info("[pipeline] Stage 2: GIS parcel discovery")
     gis_leads: list[Lead] = []
     try:
-        gis_conn = get_connector("ky_state_gis")()
+        gis_conn = get_connector("ky_state_gis")
         gis_leads, gis_run = await gis_conn.run(
             browser,
             params={"counties": counties, "limit": limit_per_source},
@@ -146,7 +148,7 @@ async def run_full_pipeline(
             continue
 
         try:
-            pva_conn = get_connector(pva_source_key)()
+            pva_conn = get_connector(pva_source_key)
             leads, run = await pva_conn.run(
                 browser,
                 params={
@@ -176,7 +178,7 @@ async def run_full_pipeline(
     logger.info("[pipeline] Stage 4: Master Commissioner sale listings")
     mc_leads: list[Lead] = []
     try:
-        mc_conn = get_connector("ky_master_commissioner")()
+        mc_conn = get_connector("ky_master_commissioner")
         mc_leads, mc_run = await mc_conn.run(
             browser,
             params={"counties": [c.title() for c in counties], "limit": limit_per_source},
@@ -194,7 +196,7 @@ async def run_full_pipeline(
     logger.info("[pipeline] Stage 5: Delinquent tax lists")
     tax_leads: list[Lead] = []
     try:
-        tax_conn = get_connector("ky_delinquent_tax")()
+        tax_conn = get_connector("ky_delinquent_tax")
         tax_leads, tax_run = await tax_conn.run(
             browser,
             params={"counties": counties, "limit": limit_per_source * 2},  # Higher limit for tax lists
@@ -212,7 +214,7 @@ async def run_full_pipeline(
     logger.info("[pipeline] Stage 6: Legal notices")
     notice_leads: list[Lead] = []
     try:
-        notice_conn = get_connector("legal_notices")()
+        notice_conn = get_connector("legal_notices")
         notice_leads, notice_run = await notice_conn.run(browser, params={})
         summary["stages"]["legal_notices"] = {
             "count": len(notice_leads), "status": notice_run.status.value

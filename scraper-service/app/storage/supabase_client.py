@@ -235,6 +235,11 @@ async def insert_leads(leads: list[Lead]) -> int:
     return inserted
 
 
+async def upsert_leads(leads: list[Lead]) -> int:
+    """Batch upsert ft_leads (alias for ``insert_leads`` — used by pipeline orchestrators)."""
+    return await insert_leads(leads)
+
+
 async def insert_source_run(run: SourceRun) -> None:
     """Insert a scraper run audit log entry."""
     client = _get_client()

@@ -54,7 +54,7 @@ async def _run_stage(
     key = stage_key or source_key
     logger.info("[pre-mls] Stage: %s", key)
     try:
-        conn = get_connector(source_key)()
+        conn = get_connector(source_key)
         leads, run = await conn.run(browser, params=params)
         summary["stages"][key] = {"count": len(leads), "status": run.status.value}
         return leads
@@ -111,7 +111,7 @@ async def _run_pva_enrichment(
             continue
 
         try:
-            pva_conn = get_connector(pva_source_key)()
+            pva_conn = get_connector(pva_source_key)
             leads, run = await pva_conn.run(
                 browser,
                 params={
