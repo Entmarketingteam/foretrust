@@ -1,10 +1,18 @@
 import express from 'express';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import router from './index.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const app = express();
 
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
+
+// Serve static assets from public folder
+app.use(express.static(path.join(__dirname, 'public')));
 
 // CORS
 const allowedOrigins: string[] = process.env.ALLOWED_ORIGINS
