@@ -5,8 +5,11 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from app.connectors.residential.kcoj_courtnet import DEFAULT_COUNTIES
 from app.models import Lead, LeadType
+
+DEFAULT_COUNTIES = [
+    "Fayette", "Scott", "Oldham", "Woodford", "Jessamine", "Clark", "Madison", "Jefferson",
+]
 
 # City / region aliases → canonical KCOJ county label (title case)
 KY_COUNTY_ALIASES: dict[str, str] = {

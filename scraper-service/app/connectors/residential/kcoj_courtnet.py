@@ -390,10 +390,8 @@ class KCOJCourtNetConnector(BaseConnector):
         await self._expand_party_search_panel(page)
         await human_delay(0.5, 1.0)
 
-        county_sel = (
-            "select#County, select[name='County'], select[name*='county' i], "
-            "#party-search select[name*='County' i]"
-        )
+        # CourtNet 2.0 Specific: County selector within Party search has a unique 'dropdownlist' class
+        county_sel = "select#SearchCriteria_County.dropdownlist, select#SearchCriteria_County"
         if not await page.query_selector(county_sel):
             raise RuntimeError(
                 "KCOJ party search county dropdown not found — "
@@ -401,10 +399,7 @@ class KCOJCourtNetConnector(BaseConnector):
             )
         await self._select_option_fuzzy(page, county_sel, county)
 
-        case_cat_sel = (
-            "select#CaseCategory, select[name='CaseCategory'], "
-            "select[name*='CaseCategory' i], select[name*='case_category' i]"
-        )
+        case_cat_sel = "select#CaseType, select[name='CaseType']"
         if await page.query_selector(case_cat_sel):
             if not await self._select_option_fuzzy(page, case_cat_sel, case_category):
                 logger.warning(
@@ -412,10 +407,7 @@ class KCOJCourtNetConnector(BaseConnector):
                 )
         await human_delay(0.5, 1.0)
 
-        party_cat_sel = (
-            "select#PartyCategory, select[name='PartyCategory'], "
-            "select[name*='PartyCategory' i], select[name*='party_category' i]"
-        )
+        party_cat_sel = "select#PartyType, select[name='PartyType']"
         if party_category and await page.query_selector(party_cat_sel):
             if not await self._select_option_fuzzy(page, party_cat_sel, party_category):
                 logger.debug(
@@ -425,18 +417,15 @@ class KCOJCourtNetConnector(BaseConnector):
 
         for sel, value in [
             (
-                "input#LastName, input[name='LastName'], input[name*='LastName' i], "
-                "input[placeholder*='Last Name' i]",
+                "input#SearchCriteria_LastName, input[name='SearchCriteria.LastName']",
                 last_name,
             ),
             (
-                "input#BusinessName, input[name='BusinessName'], "
-                "input[name*='Business' i], input[placeholder*='Business' i]",
+                "input#SearchCriteria_BusinessName, input[name='SearchCriteria.BusinessName']",
                 last_name if search.get("business_name") else "",
             ),
             (
-                "input#FirstName, input[name='FirstName'], input[name*='FirstName' i], "
-                "input[placeholder*='First Name' i]",
+                "input#SearchCriteria_FirstName, input[name='SearchCriteria.FirstName']",
                 first_name,
             ),
         ]:
@@ -448,9 +437,7 @@ class KCOJCourtNetConnector(BaseConnector):
                 await human_delay(0.3, 0.6)
 
         search_btn = await page.query_selector(
-            "#party-search input#Search, #party-search button#Search, "
-            "button:has-text('Search'), input[type='submit'][value='Search'], "
-            "input#Search, button#Search"
+            "input#Search, button#Search, input[type='submit'][value='Search']"
         )
         if search_btn:
             await search_btn.click()
