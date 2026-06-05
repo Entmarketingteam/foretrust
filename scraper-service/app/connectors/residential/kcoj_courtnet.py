@@ -304,37 +304,8 @@ class KCOJCourtNetConnector(BaseConnector):
     async def _select_option_fuzzy(
         self, page: Page, selector: str, value: str, *, by_label: bool = True
     ) -> bool:
-        """Select dropdown option; try exact label/value then partial match."""
-        try:
-            if by_label:
-                await page.select_option(selector, label=value)
-            else:
-                await page.select_option(selector, value=value)
-            return True
-        except Exception:
-            pass
-
-        select_el = await page.query_selector(selector)
-        if not select_el:
-            return False
-        try:
-            await select_el.scroll_into_view_if_needed()
-        except Exception:
-            pass
-
-        options = await select_el.query_selector_all("option")
-        target = value.upper()
-        for opt in options:
-            text = ((await opt.inner_text()) or "").strip()
-            val = (await opt.get_attribute("value")) or ""
-            if target in text.upper() or target in val.upper():
-                try:
-                    await select_el.select_option(value=val or text)
-                    return True
-                except Exception:
-                    break
-
-        # CourtNet 2.0 hides fields in collapsed panels — set via JS
+        """Select dropdown option; bypass Select2 hidden elements using direct JS setting first."""
+        # 1. Try Direct JS setting first (instant, works on hidden Select2 selects)
         try:
             ok = await page.evaluate(
                 """({ selectors, target }) => {
@@ -344,7 +315,8 @@ class KCOJCourtNetConnector(BaseConnector):
                     if (!el || !el.options) continue;
                     for (const opt of el.options) {
                       const text = (opt.text || '').toUpperCase();
-                      if (text.includes(t)) {
+                      const val = (opt.value || '').toUpperCase();
+                      if (text.includes(t) || val.includes(t)) {
                         el.value = opt.value;
                         el.dispatchEvent(new Event('change', { bubbles: true }));
                         return true;
@@ -359,10 +331,38 @@ class KCOJCourtNetConnector(BaseConnector):
                 },
             )
             if ok:
+                logger.debug("[kcoj] JS select success for %s -> %s", selector, value)
                 return True
         except Exception as exc:
-            logger.debug("[kcoj] JS select fallback failed: %s", exc)
+            logger.debug("[kcoj] JS select failed: %s", exc)
+
+        # 2. Native Playwright fallback if visible
+        try:
+            if by_label:
+                await page.select_option(selector, label=value, timeout=3000)
+            else:
+                await page.select_option(selector, value=value, timeout=3000)
+            return True
+        except Exception:
+            pass
+
         return False
+
+    async def _fill_via_js(self, page: Page, selector: str, value: str) -> None:
+        """Directly set input value on the DOM and trigger frameworks events to bypass CSS blocks."""
+        try:
+            await page.evaluate(
+                """({ selector, value }) => {
+                  const el = document.querySelector(selector);
+                  if (!el) return;
+                  el.value = value;
+                  el.dispatchEvent(new Event('input', { bubbles: true }));
+                  el.dispatchEvent(new Event('change', { bubbles: true }));
+                }""",
+                {"selector": selector, "value": value}
+            )
+        except Exception as e:
+            logger.debug("[kcoj] JS fill failed for %s: %s", selector, e)
 
     async def _party_search(
         self,
@@ -407,42 +407,34 @@ class KCOJCourtNetConnector(BaseConnector):
                 )
         await human_delay(0.5, 1.0)
 
-        party_cat_sel = "select#PartyType, select[name='PartyType']"
-        if party_category and await page.query_selector(party_cat_sel):
-            if not await self._select_option_fuzzy(page, party_cat_sel, party_category):
-                logger.debug(
-                    "[kcoj] Party category %s not matched; using default",
-                    party_category,
-                )
+        # Ensure Last Name radio option is selected to make input fields visible
+        try:
+            await page.evaluate("const r = document.querySelector('input#lastnameOption, input[value=\"lastnameOption\"]'); if (r) r.click();")
+            await human_delay(0.5, 1.0)
+        except Exception as e:
+            logger.debug("[kcoj] Failed to click radio option: %s", e)
 
-        for sel, value in [
-            (
-                "input#SearchCriteria_LastName, input[name='SearchCriteria.LastName']",
-                last_name,
-            ),
-            (
-                "input#SearchCriteria_BusinessName, input[name='SearchCriteria.BusinessName']",
-                last_name if search.get("business_name") else "",
-            ),
-            (
-                "input#SearchCriteria_FirstName, input[name='SearchCriteria.FirstName']",
-                first_name,
-            ),
-        ]:
-            if not value:
-                continue
-            el = await page.query_selector(sel)
-            if el:
-                await el.fill(value)
-                await human_delay(0.3, 0.6)
+        # Fill values via JS to bypass any CSS overlay or visibility blocks
+        await self._fill_via_js(page, "input#SearchCriteria_LastName", last_name)
+        
+        if search.get("business_name"):
+            await self._fill_via_js(page, "input#SearchCriteria_BusinessName", last_name)
+            
+        if first_name:
+            await self._fill_via_js(page, "input#SearchCriteria_FirstName", first_name)
+            
+        await human_delay(0.5, 1.0)
 
-        search_btn = await page.query_selector(
-            "input#Search, button#Search, input[type='submit'][value='Search']"
-        )
-        if search_btn:
-            await search_btn.click()
+        search_btn_sel = "input#Search, button#Search, input[type='submit'][value='Search']"
+        try:
+            # Click via JS as well to bypass overlay blocks
+            await page.evaluate("""const b = document.querySelector('input#Search, button#Search, input[value="Search"]'); if (b) b.click();""")
             await page.wait_for_load_state("networkidle", timeout=30000)
             await human_delay(1.0, 2.0)
+        except Exception as e:
+            logger.warning("[kcoj] Search submit click failed: %s", e)
+
+        await self._solve_captchas(page, passes=2)
 
         await self._solve_captchas(page, passes=2)
 
