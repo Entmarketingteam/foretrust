@@ -31,7 +31,7 @@ SOURCE = "ecclix_batch"
 # property owner — any GIS owner-match returns the lender's own corporate
 # parcel (wrong property). Skip these entirely.
 LENDER_RE = re.compile(
-    r"\b(BANK|CREDIT UNION|FED CR|FCU|MORTGAGE|MORTG|SAVINGS|LOAN)\b", re.I
+    r"\b(BANK|CREDIT UNION|FED CR|FCU|MORTGAGE|MORTG|SAVINGS|LOAN|N\.A\.|NATIONAL ASSOCIATION)\b|\w*BANK\b", re.I
 )
 
 
@@ -67,6 +67,16 @@ COUNTY_GIS = {
         "addr_field": "Location",
         "addr_normalize": _woodford_situs,
         "extra": {"year_built": "Year", "deed": "DeedBkPg", "parcel": "PARCEL"},
+    },
+    "Franklin": {
+        "url": "https://wfs.schneidercorp.com/arcgis/rest/services/FranklinCountyKY_WFS/MapServer/4/query",
+        "name_field": "OwnerName",
+        "addr_field": "PARCEL_ID",
+        "spatial_join": {
+            "url": "https://kygisserver.ky.gov/arcgis/rest/services/WGS84WM_Services/Ky_911_Site_Structure_Address_Points_WGS84WM/MapServer/0/query",
+            "inSR": 2246,
+        },
+        "extra": {"parcel": "PARCEL_ID"},
     },
 }
 
@@ -114,10 +124,14 @@ def gis_lookup(cfg: dict, owner: str):
         where += f" AND {nf} LIKE '%{firsts[0]}%'"
     af = cfg["addr_field"]
     norm = cfg.get("addr_normalize", lambda v: v.strip() if v else None)
+    
+    spatial_join = cfg.get("spatial_join")
+    ret_geom = "true" if spatial_join else "false"
+    
     out_fields = ",".join([nf, af, *cfg["extra"].values()])
     qs = urllib.parse.urlencode({
         "where": where, "outFields": out_fields,
-        "returnGeometry": "false", "f": "json",
+        "returnGeometry": ret_geom, "f": "json",
     })
     try:
         with urllib.request.urlopen(f"{cfg['url']}?{qs}", timeout=30) as r:
@@ -127,10 +141,46 @@ def gis_lookup(cfg: dict, owner: str):
     rows = []
     for f in feats:
         a = f.get("attributes", {})
-        cleaned = norm(a.get(af))
+        cleaned = None
+        
+        if spatial_join:
+            geom = f.get("geometry")
+            if geom and geom.get("rings"):
+                # Query State E911 Address Points using spatial polygon intersection
+                spatial_params = {
+                    "geometry": json.dumps({"rings": geom["rings"], "spatialReference": {"wkid": spatial_join["inSR"]}}),
+                    "geometryType": "esriGeometryPolygon",
+                    "spatialRel": "esriSpatialRelIntersects",
+                    "inSR": str(spatial_join["inSR"]),
+                    "outFields": "Add_Number,St_Name,St_PosTyp,Post_Comm,Post_Code",
+                    "f": "json"
+                }
+                try:
+                    spatial_qs = urllib.parse.urlencode(spatial_params)
+                    spatial_req = urllib.request.Request(
+                        spatial_join["url"],
+                        data=spatial_qs.encode(),
+                        method="POST"
+                    )
+                    with urllib.request.urlopen(spatial_req, timeout=10) as s_resp:
+                        s_data = json.loads(s_resp.read())
+                        s_feats = s_data.get("features", [])
+                        if s_feats:
+                            s_attrs = s_feats[0].get("attributes") or {}
+                            num = s_attrs.get("Add_Number")
+                            st = s_attrs.get("St_Name") or ""
+                            typ = s_attrs.get("St_PosTyp") or ""
+                            if num:
+                                cleaned = f"{num} {st} {typ}".strip().upper()
+                except Exception as e:
+                    print(f"Spatial join query failed for parcel {a.get(af)}: {e}")
+        else:
+            cleaned = norm(a.get(af))
+            
         if cleaned:
             a["_addr"] = cleaned
             rows.append(a)
+            
     addrs = {r["_addr"] for r in rows}
     if len(addrs) != 1:
         return None  # 0 = no match, >1 = ambiguous -> skip
