@@ -81,6 +81,17 @@ async def run_connector_job(source_key: str, params: dict | None = None) -> None
             await insert_source_run(run)
 
 
+async def job_gis_address_enrichment() -> None:
+    """Scheduled background job to backfill property addresses for leads using county GIS."""
+    logger.info("[scheduler] Starting GIS Address Enrichment background job...")
+    try:
+        from app.pipeline.gis_address_enrichment import enrich_all_counties_gis
+        results = await enrich_all_counties_gis()
+        logger.info("[scheduler] GIS Address Enrichment complete: %s", results)
+    except Exception as exc:
+        logger.error("[scheduler] GIS Address Enrichment job failed: %s", exc)
+
+
 def setup_scheduler() -> None:
     """Register all connector cron jobs based on their default_schedule."""
     from app.connectors.registry import list_connectors
@@ -111,6 +122,16 @@ def setup_scheduler() -> None:
             logger.info("[scheduler] Registered %s: %s", source_key, schedule)
         else:
             logger.warning("[scheduler] Invalid cron for %s: %s", source_key, schedule)
+
+    # Register standalone custom background jobs
+    scheduler.add_job(
+        job_gis_address_enrichment,
+        trigger=CronTrigger(hour="1", minute="0"),
+        id="job_gis_address_enrichment",
+        name="Background: GIS Address Enrichment",
+        replace_existing=True,
+    )
+    logger.info("[scheduler] Registered Standalone Background: GIS Address Enrichment (Every day at 1:00 AM UTC)")
 
 
 def start_scheduler() -> None:

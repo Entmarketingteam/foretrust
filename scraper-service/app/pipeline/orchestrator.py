@@ -284,6 +284,18 @@ async def run_full_pipeline(
         logger.error("[pipeline] Persist stage failed: %s", exc)
         summary["stages"]["persist"] = {"count": 0, "status": "error", "error": str(exc)}
 
+    # ------------------------------------------------------------------ #
+    # POST-PERSIST: Automated GIS Address Enrichment                    #
+    # ------------------------------------------------------------------ #
+    logger.info("[pipeline] Post-Persist: Executing automated GIS Address Enrichment backfills...")
+    try:
+        from app.pipeline.gis_address_enrichment import enrich_all_counties_gis
+        gis_results = await enrich_all_counties_gis()
+        summary["stages"]["gis_enrichment"] = gis_results
+    except Exception as exc:
+        logger.error("[pipeline] Post-Persist GIS Enrichment failed: %s", exc)
+        summary["stages"]["gis_enrichment"] = {"error": str(exc)}
+
     logger.info(
         "[pipeline] Complete: %d total leads, %d hot (score≥60)",
         summary["total_leads"], summary["hot_leads"],

@@ -294,6 +294,18 @@ async def run_pre_mls_pipeline(
         logger.error("[pre-mls] Persist failed: %s", exc)
         summary["stages"]["persist"] = {"count": 0, "status": "error", "error": str(exc)}
 
+    # ------------------------------------------------------------------ #
+    # POST-PERSIST: Automated GIS Address Enrichment                    #
+    # ------------------------------------------------------------------ #
+    logger.info("[pre-mls] Post-Persist: Executing automated GIS Address Enrichment backfills...")
+    try:
+        from app.pipeline.gis_address_enrichment import enrich_all_counties_gis
+        gis_results = await enrich_all_counties_gis()
+        summary["stages"]["gis_enrichment"] = gis_results
+    except Exception as exc:
+        logger.error("[pre-mls] Post-Persist GIS Enrichment failed: %s", exc)
+        summary["stages"]["gis_enrichment"] = {"error": str(exc)}
+
     logger.info(
         "[pre-mls] Complete: %d leads, %d hot (score≥60)",
         summary["total_leads"], summary["hot_leads"],
