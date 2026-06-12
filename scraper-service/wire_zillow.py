@@ -9,7 +9,9 @@ import asyncio
 import logging
 from supabase import create_client
 from app.connectors.residential.zillow_public import ZillowPublicConnector
-from app.browser import create_browser
+from app.browser import create_browser, create_browserbase_browser
+from app.proxy import proxy_manager
+from app.config import settings
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -24,11 +26,27 @@ async def wire_zillow():
     leads = res.data
     logger.info(f"Wiring {len(leads)} leads to Zillow API...")
     
-    async with create_browser(headless=True) as browser:
+    if not leads:
+        logger.info("No leads requiring Zillow checks.")
+        return
+
+    # Choose browser connection depending on available secrets (Browserbase vs Rotating Proxies)
+    use_bb = bool(settings.browserbase_api_key)
+    
+    if use_bb:
+        logger.info("[zillow-bridge] Bypassing Akamai WAF using Browserbase Cloud Browser")
+        browser_ctx = create_browserbase_browser()
+    else:
+        logger.info("[zillow-bridge] Bypassing Akamai WAF using local Playwright + Webshare rotating residential proxies")
+        proxy_session = proxy_manager.create_session()
+        browser_ctx = create_browser(proxy_session=proxy_session, headless=True)
+        
+    async with browser_ctx as browser:
         z_conn = ZillowPublicConnector()
         for lead in leads:
             addr = lead['property_address']
-            if not addr or addr == "Unknown": continue
+            if not addr or addr == "Unknown": 
+                continue
             
             logger.info(f"Zillow Scan: {addr}...")
             try:
