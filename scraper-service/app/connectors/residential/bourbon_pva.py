@@ -1,18 +1,16 @@
-"""Bourbon County PVA Connector (qPublic).
-"""
+"""Bourbon County PVA Connector (Paris) — Schneider qPublic."""
 
 from __future__ import annotations
-from app.connectors.residential.base_pva import BasePVAConnector
+
 from app.connectors.registry import register
+from app.connectors.residential.qpublic_pva import QPublicPVAConnector
+
 
 @register
-class BourbonPVAConnector(BasePVAConnector):
+class BourbonPVAConnector(QPublicPVAConnector):
     source_key = "bourbon_pva"
     jurisdiction = "KY-Bourbon"
+    qpublic_app = "BourbonCountyKY"
     county_name = "Bourbon"
     city_name = "PARIS"
-    base_url = "https://qpublic.schneidercorp.com/Application.aspx?AppID=955"
-    
-    @property
-    def search_path(self) -> str:
-        return "" # qPublic uses AppID in base_url
+    default_schedule = "0 8 * * *"

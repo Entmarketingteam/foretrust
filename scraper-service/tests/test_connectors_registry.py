@@ -210,6 +210,7 @@ class TestKnownConnectorsRegistered:
         "kcoj_courtnet",
         "fayette_pva",
         "scott_pva",
+        "bourbon_pva",
         "oldham_pva",
         "zillow_public",
         "ecclix_batch",
