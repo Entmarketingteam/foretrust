@@ -117,7 +117,7 @@ class ScottPVAConnector(BasePVAConnector):
         # 1. Fetch all OBJECTIDs backwards
         ids = []
         async with httpx.AsyncClient(timeout=20) as client:
-            last_id = 5888738 + 1  # Start above max
+            last_id = 10_000_000_000  # Start above any OBJECTID (GIS range shifts over time)
             retry_count = 0
             while True:
                 where = f"OBJECTID < {last_id}"

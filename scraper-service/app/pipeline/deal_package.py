@@ -45,6 +45,7 @@ async def fetch_distress_leads(
     *,
     source_keys: list[str] | None = None,
     limit: int = 500,
+    county: str | None = None,
 ) -> list[dict[str, Any]]:
     from app.storage.supabase_client import _get_client
 
@@ -56,11 +57,11 @@ async def fetch_distress_leads(
     out: list[dict[str, Any]] = []
     for sk in keys:
         try:
+            q = client.table("ft_leads").select("*").eq("source_key", sk)
+            if county:
+                q = q.ilike("jurisdiction", f"%{county}%")
             resp = (
-                client.table("ft_leads")
-                .select("*")
-                .eq("source_key", sk)
-                .order("hot_score", desc=True)
+                q.order("hot_score", desc=True)
                 .limit(limit)
                 .execute()
             )
@@ -223,7 +224,7 @@ async def build_best_deals_package(
     pva_limit: int = 35,
 ) -> dict[str, Any]:
     """Full pipeline for operator."""
-    leads = await fetch_distress_leads()
+    leads = await fetch_distress_leads(county=county)
     if enrich_pva and browser:
         leads = await enrich_with_pva(browser, leads, county=county, max_enrich=pva_limit)
     buckets = rank_deals(leads)

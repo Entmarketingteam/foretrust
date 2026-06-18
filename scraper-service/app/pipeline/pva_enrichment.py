@@ -110,6 +110,56 @@ async def fetch_leads_for_pva(
     return leads[:limit]
 
 
+async def _enrich_bulk(
+    conn,
+    browser,
+    leads: list[dict[str, Any]],
+    max_enrich: int,
+) -> tuple[list[dict[str, Any]], int]:
+    """Enrich via a single bulk GIS fetch, matched back by search_query."""
+    targets = leads[:max_enrich]
+    addresses: list[str] = []
+    names: list[str] = []
+    for lead in targets:
+        addr = (lead.get("property_address") or "").strip()
+        owner = (lead.get("owner_name") or "").strip()
+        if is_valid_street_address(addr):
+            addresses.append(addr)
+        if owner:
+            names.append(owner)
+
+    logger.info(
+        "[pva] bulk fetch %d addresses + %d names via %s",
+        len(addresses), len(names), conn.source_key,
+    )
+    try:
+        recs = await conn.fetch(
+            browser,
+            {"addresses": addresses, "names": names, "limit": len(targets)},
+        )
+    except Exception as exc:
+        logger.warning("[pva] bulk fetch failed: %s", exc)
+        return leads, 0
+
+    by_query: dict[str, dict[str, Any]] = {}
+    for rec in recs:
+        q = (rec.data.get("search_query") or "").strip()
+        if q:
+            by_query.setdefault(q, rec.data)
+
+    enriched_count = 0
+    for i, lead in enumerate(targets):
+        addr = (lead.get("property_address") or "").strip()
+        owner = (lead.get("owner_name") or "").strip()
+        pva_data = by_query.get(addr) or by_query.get(owner)
+        if pva_data:
+            leads[i] = apply_pva_data(lead, pva_data)
+            enriched_count += 1
+
+    logger.info("[pva] bulk enriched %d/%d leads", enriched_count, len(targets))
+    return leads, enriched_count
+
+
 async def enrich_leads_with_pva(
     browser,
     leads: list[dict[str, Any]],
@@ -118,9 +168,15 @@ async def enrich_leads_with_pva(
     max_enrich: int = 500,
     workers_delay: float = 2.5,
 ) -> tuple[list[dict[str, Any]], int]:
-    """Address-first, then parcel, then owner name lookups."""
+    """Address-first, then parcel, then owner name lookups.
+
+    GIS-bulk connectors (Scott, Woodford) override ``fetch`` to download the
+    county parcel database once and match locally — they have no per-address
+    ``_lookup``. Route those through a single bulk ``fetch`` call instead.
+    """
     from app.browser import create_context, human_delay
     from app.connectors.registry import get_connector
+    from app.connectors.residential.base_pva import BasePVAConnector
 
     key = f"{county.lower()}_pva"
     try:
@@ -128,6 +184,9 @@ async def enrich_leads_with_pva(
     except KeyError:
         logger.error("No PVA connector: %s", key)
         return leads, 0
+
+    if type(conn).fetch is not BasePVAConnector.fetch:
+        return await _enrich_bulk(conn, browser, leads, max_enrich)
 
     enriched_count = 0
     async with create_context(browser) as ctx:

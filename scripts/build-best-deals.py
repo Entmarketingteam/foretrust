@@ -97,7 +97,7 @@ async def main() -> None:
 
     from app.pipeline.deal_package import fetch_distress_leads
 
-    leads = await fetch_distress_leads()
+    leads = await fetch_distress_leads(county=args.county.lower())
     if not leads and csv_paths:
         leads = load_local_csv(csv_paths)
     elif csv_paths:
