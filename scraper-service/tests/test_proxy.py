@@ -3,11 +3,17 @@
 import os
 from unittest.mock import patch
 
+from app.config import settings
 from app.proxy import ProxyManager
 
 
 def test_no_proxy_configured():
-    with patch.dict(os.environ, {"PROXY_SERVER": "", "PROXY_USERNAME": ""}, clear=False):
+    with (
+        patch.object(settings, "webshare_username", ""),
+        patch.object(settings, "webshare_password", ""),
+        patch.object(settings, "proxy_server", ""),
+        patch.object(settings, "proxy_username", ""),
+    ):
         mgr = ProxyManager()
         session = mgr.create_session()
         assert session.playwright_proxy is None
@@ -21,19 +27,16 @@ def test_proxy_session_id_unique():
 
 
 def test_bright_data_format():
-    with patch.dict(os.environ, {
-        "PROXY_SERVER": "http://brd.superproxy.io:22225",
-        "PROXY_USERNAME": "brd-customer-abc",
-        "PROXY_PASSWORD": "secret",
-        "PROXY_COUNTRY": "us",
-        "PROXY_STATE": "ky",
-    }, clear=False):
+    with (
+        patch.object(settings, "webshare_username", ""),
+        patch.object(settings, "webshare_password", ""),
+        patch.object(settings, "proxy_server", "http://brd.superproxy.io:22225"),
+        patch.object(settings, "proxy_username", "brd-customer-abc"),
+        patch.object(settings, "proxy_password", "secret"),
+        patch.object(settings, "proxy_country", "us"),
+        patch.object(settings, "proxy_state", "ky"),
+    ):
         mgr = ProxyManager()
-        mgr._server = "http://brd.superproxy.io:22225"
-        mgr._username = "brd-customer-abc"
-        mgr._password = "secret"
-        mgr._country = "us"
-        mgr._state = "ky"
         session = mgr.create_session()
         assert "session-" in session.username
         assert "-country-us" in session.username

@@ -99,7 +99,7 @@ class RunRequest(BaseModel):
     params: dict[str, Any] = {}
 
 
-@app.post("/run/{source_key}")
+@app.post("/run/{source_key}", status_code=202)
 async def trigger_run(
     source_key: str,
     background_tasks: BackgroundTasks,

@@ -7,6 +7,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
+from app.config import settings
+
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -22,12 +24,10 @@ def client():
     with (
         patch("app.scheduler.start_scheduler"),
         patch("app.scheduler.stop_scheduler"),
-        patch("app.config.settings") as mock_settings,
+        patch.object(settings, "scraper_shared_token", AUTH_TOKEN),
+        patch.object(settings, "supabase_url", "https://test.supabase.co"),
+        patch.object(settings, "supabase_service_role_key", "test-role-key"),
     ):
-        mock_settings.scraper_shared_token = AUTH_TOKEN
-        mock_settings.supabase_url = "https://test.supabase.co"
-        mock_settings.supabase_service_role_key = "test-role-key"
-
         from app.main import app
         with TestClient(app, raise_server_exceptions=False) as c:
             yield c
@@ -39,12 +39,10 @@ def open_client():
     with (
         patch("app.scheduler.start_scheduler"),
         patch("app.scheduler.stop_scheduler"),
-        patch("app.config.settings") as mock_settings,
+        patch.object(settings, "scraper_shared_token", ""),
+        patch.object(settings, "supabase_url", "https://test.supabase.co"),
+        patch.object(settings, "supabase_service_role_key", "test-role-key"),
     ):
-        mock_settings.scraper_shared_token = ""   # empty = open mode
-        mock_settings.supabase_url = "https://test.supabase.co"
-        mock_settings.supabase_service_role_key = "test-role-key"
-
         from app.main import app
         with TestClient(app, raise_server_exceptions=False) as c:
             yield c
