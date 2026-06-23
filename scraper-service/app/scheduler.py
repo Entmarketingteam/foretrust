@@ -92,6 +92,20 @@ async def job_gis_address_enrichment() -> None:
         logger.error("[scheduler] GIS Address Enrichment job failed: %s", exc)
 
 
+async def job_google_alerts_probate() -> None:
+    """Scheduled background job to run the Google Alerts / Probate Sourcing Agent."""
+    logger.info("[scheduler] Starting Google Alerts / Probate Sourcing Agent background job...")
+    try:
+        from app.pipeline.agentic.google_alerts_agent import GoogleAlertsProbateAgent
+        from app.browser import create_browser
+        async with create_browser(headless=True) as browser:
+            agent = GoogleAlertsProbateAgent()
+            leads = await agent.run_sweep(browser)
+            logger.info("[scheduler] Google Alerts / Probate Sourcing Agent complete: found %d leads", len(leads))
+    except Exception as exc:
+        logger.error("[scheduler] Google Alerts / Probate Sourcing Agent job failed: %s", exc)
+
+
 def setup_scheduler() -> None:
     """Register all connector cron jobs based on their default_schedule."""
     from app.connectors.registry import list_connectors
@@ -132,6 +146,15 @@ def setup_scheduler() -> None:
         replace_existing=True,
     )
     logger.info("[scheduler] Registered Standalone Background: GIS Address Enrichment (Every day at 1:00 AM UTC)")
+
+    scheduler.add_job(
+        job_google_alerts_probate,
+        trigger=CronTrigger(hour="8", minute="0"),
+        id="job_google_alerts_probate",
+        name="Background: Google Alerts Probate Agent",
+        replace_existing=True,
+    )
+    logger.info("[scheduler] Registered Standalone Background: Google Alerts Probate Agent (Every day at 8:00 AM UTC)")
 
 
 def start_scheduler() -> None:
